@@ -1178,7 +1178,9 @@ static int high_dpi_cases(const std::string& filename)
         opts.dpi=(float)c.dpi;
         const auto result=quantapdf_render_page_with_options(page,&opts,&im);
         if(!c.success) {
-            CHECK(result==QUANTAPDF_ERROR_UNSUPPORTED && im==nullptr);
+            const auto expected=c.kind==2 && c.mode==7 ?
+                QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
+            CHECK(result==expected && im==nullptr);
             if(c.kind==2 && c.mode==25) {
                 quantapdf_bitmap *small=reinterpret_cast<quantapdf_bitmap*>(
                     uintptr_t(1));
@@ -4718,7 +4720,7 @@ int main(int argc,char **argv)
             /* Unknown /J is an invalid resource; an unmatched Q is
              * malformed original-PDF graphics-stack syntax. Both are
              * FORMAT failures, not ordinary unsupported features. */
-            const auto rejection=(mode==14 || mode==15) ?
+            const auto rejection=(mode==7 || mode==14 || mode==15) ?
                 QUANTAPDF_ERROR_FORMAT : QUANTAPDF_ERROR_UNSUPPORTED;
             if(result!=rejection || rendered!=nullptr)
                 std::fprintf(stderr,
@@ -4873,7 +4875,7 @@ int main(int argc,char **argv)
         const auto status=quantapdf_render_page(mixed_page,&rendered);
         const bool valid=mode==0 || mode==1 || mode==3 || mode==4 || mode==5 || mode==8;
         if(!valid) {
-            const auto expected_status=mode==6 ?
+            const auto expected_status=(mode==6 || mode==7) ?
                 QUANTAPDF_ERROR_FORMAT:QUANTAPDF_ERROR_UNSUPPORTED;
             if(status!=expected_status || rendered!=nullptr)
                 std::fprintf(stderr,
@@ -4881,9 +4883,7 @@ int main(int argc,char **argv)
                     mode,(int)expected_status,(int)status,(void*)rendered);
             CHECK(status==expected_status && rendered==nullptr);
             small=reinterpret_cast<quantapdf_bitmap*>(uintptr_t(1));
-            CHECK(quantapdf_render_thumbnail(mixed_page,16,12,&small)==
-                  (mode==6?QUANTAPDF_ERROR_FORMAT:
-                            QUANTAPDF_ERROR_UNSUPPORTED) &&
+            CHECK(quantapdf_render_thumbnail(mixed_page,16,12,&small)==expected_status &&
                   small==nullptr);
         } else {
             CHECK(status==QUANTAPDF_OK && rendered!=nullptr);

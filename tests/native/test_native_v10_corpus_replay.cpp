@@ -28,7 +28,7 @@ struct case_entry {
     const char *status_text;
     uint32_t center;
     bool clipped;
-    bool blank;
+    bool all_white;
 };
 static constexpr std::array<case_entry,12u> cases={{
     {"path-red",QUANTAPDF_OK,"OK",UINT32_C(0xff0000),false,false},
@@ -42,7 +42,7 @@ static constexpr std::array<case_entry,12u> cases={{
     {"reject-form-xobject",QUANTAPDF_ERROR_UNSUPPORTED,"UNSUPPORTED",0u,false,false},
     {"reject-default-rgb",QUANTAPDF_ERROR_UNSUPPORTED,"UNSUPPORTED",0u,false,false},
     {"reject-image-late-text",QUANTAPDF_ERROR_UNSUPPORTED,"UNSUPPORTED",0u,false,false},
-    {"reject-cmyk-image",QUANTAPDF_ERROR_UNSUPPORTED,"UNSUPPORTED",0u,false,false}
+    {"reject-cmyk-image",QUANTAPDF_OK,"OK",UINT32_C(0xffffff),false,true}
 }};
 static constexpr std::array<int,3u> dpis={{72,96,144}};
 static constexpr std::array<uint32_t,3u> seeds={{0u,UINT32_C(0x4cf5ad11),
@@ -68,7 +68,7 @@ static bool exact_pixels(const case_entry& info,const pixels& p,int dpi)
     if(p.width!=w||p.height!=h||p.data.size()!=
        static_cast<size_t>(w)*static_cast<size_t>(h)*3u)return false;
     if(pixel(p,p.width/2,p.height/2)!=info.center)return false;
-    if(info.blank) {
+    if(info.all_white) {
         for(unsigned char c:p.data)if(c!=255u)return false;
     } else if(info.clipped) {
         if(pixel(p,0,0)!=UINT32_C(0xffffff)||
@@ -223,7 +223,7 @@ static int run(const std::filesystem::path& assets,
           std::memcmp(remaining,held_copy.data(),remaining_size)==0);
     quantapdf_drop_bitmap(held);
 
-    CHECK(positives==54u && refusals==54u);
+    CHECK(positives==63u && refusals==45u);
     for(size_t i=0u;i<cases.size();++i)
         CHECK(calls[i]==9u && pixels_checked[i]==
               (cases[i].status==QUANTAPDF_OK?9u:0u));
@@ -237,7 +237,7 @@ static int run(const std::filesystem::path& assets,
     out<<"{\"schema_version\":1,\"corpus_id\":\"native-v10-cross-document-v1\","
        <<"\"fixture_kind\":\"generated-test-owned\",\"result\":\"passed\","
        <<"\"document_count\":12,\"dpi\":[72,96,144],"
-       <<"\"execution_count\":108,\"positive_count\":54,\"refusal_count\":54,"
+       <<"\"execution_count\":108,\"positive_count\":63,\"refusal_count\":45,"
        <<"\"pass_results\":[";
     for(size_t pass=0u;pass<3u;++pass) {
         if(pass!=0u)out<<',';
@@ -248,7 +248,7 @@ static int run(const std::filesystem::path& assets,
             if(i!=0u)out<<',';
             out<<'\"'<<cases[permutations[pass][i]].id<<'\"';
         }
-        out<<"],\"executions\":36,\"positive\":18,\"refusals\":18}";
+        out<<"],\"executions\":36,\"positive\":21,\"refusals\":15}";
     }
     out<<"],\"documents\":[";
     for(size_t i=0u;i<cases.size();++i) {
@@ -262,7 +262,7 @@ static int run(const std::filesystem::path& assets,
     out.flush();
     CHECK(out.good());
     std::printf("Native V10 cross-document corpus: 12 SHA-pinned originals, "
-                "108 executions, 54 RGB positives, 54 atomic refusals, "
+                "108 executions, 63 RGB positives, 45 atomic refusals, "
                 "three complete orders, Bitmap retained\n");
     return EXIT_SUCCESS;
 }

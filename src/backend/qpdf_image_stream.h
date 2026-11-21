@@ -18,11 +18,12 @@ struct image_samples {
     unsigned channels = 0, bits = 0;
     size_t row_bytes = 0;
     std::vector<unsigned char> bytes;
-    std::array<double, 6u> decode{};
+    std::array<double, 8u> decode{};
 
     unsigned raw(size_t x, size_t y, unsigned channel) const;
     double decoded(size_t x, size_t y, unsigned channel) const;
     unsigned value(size_t x, size_t y, unsigned channel, unsigned maximum) const;
+    std::array<double, 3u> cmyk_rgb(size_t x, size_t y) const;
 };
 
 struct image_colors {
@@ -37,11 +38,12 @@ struct image_colors {
 
 // XObject color spaces are explicit PDF objects. Extraction also accepts resource names.
 image_colors qpdf_read_image_colors(QPDFObjectHandle image, QPDFObjectHandle resources,
-    size_t pixel_limit);
+    size_t pixel_limit, bool resolve_names);
 
 struct device_image_samples {
     std::vector<unsigned char> pixels;
     bool wide;
+    int components;
 };
 
 // Device samples are tightly packed, with a big-endian pair for each wide sample.

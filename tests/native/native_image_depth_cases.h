@@ -25,7 +25,7 @@ static int native_image_depth_cases(const std::string& filename)
                               const std::vector<unsigned char>& reference,
                               unsigned page_width, unsigned page_height,
                               quantapdf_status wanted = QUANTAPDF_OK,
-                              const std::vector<unsigned char>* indexed_reference = nullptr) -> int {
+                              const std::vector<unsigned char>* image_reference = nullptr, bool indexed = false) -> int {
         CHECK(write_pdf(filename, original));
         quantapdf_document *raw_doc = nullptr;
         OK(quantapdf_open(filename.c_str(), nullptr, &raw_doc));
@@ -67,19 +67,19 @@ static int native_image_depth_cases(const std::string& filename)
         info.struct_size = sizeof(info);
         OK(quantapdf_image_get_info(images.get(), 0u, &info));
         CHECK(info.pixel_width == int(image.width) && info.pixel_height == int(image.height) &&
-            info.components == (indexed_reference ? 3 : int(image.channels)) &&
+            info.components == (indexed ? 3 : int(image.channels)) &&
             info.bits_per_component == int(image.bits) && !info.has_alpha);
         OK(quantapdf_image_render(images.get(), 0u, &raw_bitmap));
         bitmap.reset(raw_bitmap);
         images.reset();
         CHECK(matches(bitmap.get(), image.width, image.height,
-            indexed_reference ? *indexed_reference : rgb(image, false)));
+            image_reference ? *image_reference : rgb(image, false)));
         ++extracted;
         return EXIT_SUCCESS;
     };
 
     for (unsigned bits : {1u, 2u, 4u, 8u, 16u})
-    for (unsigned channels : {1u, 3u})
+    for (unsigned channels : {1u, 3u, 4u})
     for (auto encoding : {storage::raw, storage::flate, storage::tiff, storage::png}) {
         auto image = grid(bits, channels, encoding);
         const bool turned = image.rotation == 90;
@@ -101,6 +101,12 @@ static int native_image_depth_cases(const std::string& filename)
         std::fill_n(expected.begin() + start + 6u, 3u, 1u);
     }
     CHECK(execute(wide, create(wide, fault::none, "[0 0 5 4]", "q 3 0 0 2 1 1 cm /I Do Q"),
+        expected, 5u, 4u) == EXIT_SUCCESS);
+
+    specimen cmyk_wide = wide;
+    cmyk_wide.channels = 4u;
+    cmyk_wide.samples = {65534u, 65534u, 65534u, 1u, 65000u, 65000u, 65000u, 406u};
+    CHECK(execute(cmyk_wide, create(cmyk_wide, fault::none, "[0 0 5 4]", "q 3 0 0 2 1 1 cm /I Do Q"),
         expected, 5u, 4u) == EXIT_SUCCESS);
 
     wide.interpolate = false;
@@ -130,7 +136,7 @@ static int native_image_depth_cases(const std::string& filename)
                          std::vector{0u, 2u, 2u, 1u, 2u, 2u};
         const auto reference = indexed_rgb(image, rgb_palette, indices, false);
         CHECK(execute(image, create(image, fault::none, "[0 0 3 2]", "q 3 0 0 2 0 0 cm /I Do Q", &rgb_palette),
-            reference, 3u, 2u, QUANTAPDF_OK, &reference) == EXIT_SUCCESS);
+            reference, 3u, 2u, QUANTAPDF_OK, &reference, true) == EXIT_SUCCESS);
     }
 
     auto gray = grid(4u, 1u, storage::png);
@@ -141,7 +147,7 @@ static int native_image_depth_cases(const std::string& filename)
     const std::vector<unsigned> gray_indices{3u, 3u, 2u, 2u, 1u, 0u};
     const auto gray_reference = indexed_rgb(gray, gray_palette, gray_indices, false);
     CHECK(execute(gray, create(gray, fault::none, "[0 0 3 2]", "q 3 0 0 2 0 0 cm /I Do Q", &gray_palette),
-        indexed_rgb(gray, gray_palette, gray_indices, true), 2u, 3u, QUANTAPDF_OK, &gray_reference) == EXIT_SUCCESS);
+        indexed_rgb(gray, gray_palette, gray_indices, true), 2u, 3u, QUANTAPDF_OK, &gray_reference, true) == EXIT_SUCCESS);
 
     specimen bilinear;
     bilinear.width = 2u;
@@ -157,7 +163,14 @@ static int native_image_depth_cases(const std::string& filename)
         std::copy(interpolated.begin(), interpolated.end(), page.begin() + (y * 5u + 1u) * 3u);
     CHECK(execute(bilinear, create(bilinear, fault::none, "[0 0 5 4]",
         "0 g 0 0 5 4 re f q 1 1 3 2 re W n 3 0 0 2 1 1 cm /I Do Q", &rgb_palette),
-        page, 5u, 4u, QUANTAPDF_OK, &texels) == EXIT_SUCCESS);
+        page, 5u, 4u, QUANTAPDF_OK, &texels, true) == EXIT_SUCCESS);
+
+    // For the CMYK palette, index 1 is green while 0 and 2 map to red and blue.
+    const indexed_palette cmyk_palette{"/DeviceCMYK", 2u,
+        std::string("\x00\xff\xff\x00\xff\x00\xff\x00\xff\xff\x00\x00", 12u), true};
+    CHECK(execute(bilinear, create(bilinear, fault::none, "[0 0 5 4]",
+        "0 g 0 0 5 4 re f q 1 1 3 2 re W n 3 0 0 2 1 1 cm /I Do Q", &cmyk_palette),
+        page, 5u, 4u, QUANTAPDF_OK, &texels, true) == EXIT_SUCCESS);
 
     auto invalid_palette = rgb_palette;
     invalid_palette.bytes.pop_back();
@@ -168,11 +181,48 @@ static int native_image_depth_cases(const std::string& filename)
     CHECK(execute(gray, create(gray, fault::none, "[0 0 3 2]", "q 3 0 0 2 0 0 cm /I Do Q", &invalid_palette),
         {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
     invalid_palette = rgb_palette;
-    invalid_palette.base = "/DeviceCMYK";
+    invalid_palette.base = "/Lab";
     CHECK(execute(bilinear, create(bilinear, fault::none, "[0 0 5 4]", "q 3 0 0 2 0 0 cm /I Do Q", &invalid_palette),
         {}, 0u, 0u, QUANTAPDF_ERROR_UNSUPPORTED) == EXIT_SUCCESS);
 
-    CHECK(rendered == 49u && extracted == 49u && denied == 7u);
+    auto cmyk = grid(8u, 4u, storage::raw);
+    CHECK(execute(cmyk, create(cmyk, fault::decode_length), {}, 0u, 0u,
+        QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    CHECK(execute(cmyk, create(cmyk, fault::default_cmyk), {}, 0u, 0u,
+        QUANTAPDF_ERROR_UNSUPPORTED) == EXIT_SUCCESS);
+    const auto plain_gray = grid(8u, 1u, storage::raw);
+    CHECK(execute(plain_gray, create(plain_gray, fault::default_cmyk),
+        rgb(plain_gray, false), 3u, 2u) == EXIT_SUCCESS);
+
+    struct jpeg_case {
+        bool progressive;
+        int adobe, transform;
+        bool invert;
+        std::array<unsigned char, 3u> color;
+    };
+    const jpeg_case jpeg_cases[] = {
+        {false, -1, -1, false, {35u, 23u, 0u}},
+        {false, -1, 1, false, {8u, 0u, 0u}},
+        {false, 0, 1, true, {0u, 0u, 13u}},
+        {false, 2, 0, true, {0u, 29u, 48u}},
+        {true, 2, 0, true, {0u, 29u, 48u}},
+    };
+    constexpr const char *jpeg_bounds = "[0 0 8 8]";
+    constexpr const char *jpeg_paint = "q 8 0 0 8 0 0 cm /I Do Q";
+    for (const auto& item : jpeg_cases) {
+        const auto image = jpeg_cmyk(item.progressive, item.adobe, item.transform, item.invert);
+        std::vector<unsigned char> reference(8u * 8u * 3u);
+        for (size_t i = 0u; i < reference.size(); i += 3u)
+            std::copy(item.color.begin(), item.color.end(), reference.begin() + i);
+        CHECK(execute(image, create(image, fault::none, jpeg_bounds, jpeg_paint),
+            reference, 8u, 8u, QUANTAPDF_OK, &reference) == EXIT_SUCCESS);
+    }
+    auto bad_jpeg = jpeg_cmyk(false, 0, -1, false);
+    --bad_jpeg.width;
+    CHECK(execute(bad_jpeg, create(bad_jpeg, fault::none, jpeg_bounds, jpeg_paint),
+        {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+
+    CHECK(rendered == 77u && extracted == 77u && denied == 10u);
     std::printf("Image depth: %zu full-page RGB matches, %zu extracted RGB matches, %zu atomic errors\n",
         rendered, extracted, denied);
     return EXIT_SUCCESS;

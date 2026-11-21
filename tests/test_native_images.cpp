@@ -214,7 +214,7 @@ void rejections()
     }
     {
         fixture f; Obj image = f.rgb(); image.getDict().replaceKey("/ColorSpace",Obj::newName("/DeviceCMYK"));
-        f.objects.replaceKey("/I",image); f.content("/I Do"); f.extract(QUANTAPDF_ERROR_UNSUPPORTED);
+        f.objects.replaceKey("/I",image); f.content("/I Do"); f.extract(QUANTAPDF_ERROR_FORMAT);
     }
     {
         fixture f; f.objects.replaceKey("/I",f.rgb());

@@ -7,17 +7,19 @@
 
 namespace native_image_depth {
 using O = QPDFObjectHandle;
-enum class storage { raw, flate, tiff, png };
-enum class fault { none, short_rows, predictor_width, decode_length, depth };
-inline constexpr std::array<int, 6u> identity{0, 16, 0, 16, 0, 16};
+enum class storage { raw, flate, tiff, png, dct };
+enum class fault { none, short_rows, predictor_width, decode_length, depth, default_cmyk };
+inline constexpr std::array<int, 8u> identity{0, 16, 0, 16, 0, 16, 0, 16};
 
 struct specimen {
     unsigned width = 3u, height = 2u, bits = 8u, channels = 1u;
     std::vector<unsigned> samples;
-    std::array<int, 6u> decode = identity;
+    std::array<int, 8u> decode = identity;
     storage encoding = storage::raw;
     bool interpolate = false;
     int rotation = 0;
+    std::string jpeg;
+    int color_transform = -1;
 };
 
 struct indexed_palette {
@@ -38,9 +40,9 @@ inline specimen grid(unsigned bits, unsigned channels, storage encoding)
     const std::array values = {0u, max, max / 2u, 1u, max - 1u, max / 3u, max * 3u / 4u};
     for (size_t i = 0u; i < image.width * image.height * channels; ++i)
         image.samples.push_back(values[i % values.size()]);
-    if (encoding == storage::tiff) image.decode = {16, 0, 0, 16, 16, 0};
-    if (encoding == storage::png) image.decode = {-2, 18, 13, 3, 4, 12};
-    if (bits == 16u && channels == 3u) image.rotation = 90;
+    if (encoding == storage::tiff) image.decode = {16, 0, 0, 16, 16, 0, 16, 0};
+    if (encoding == storage::png) image.decode = {-2, 18, 13, 3, 4, 12, 1, 15};
+    if (bits == 16u && channels >= 3u) image.rotation = 90;
     return image;
 }
 
@@ -97,11 +99,17 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
 {
     QPDF pdf;
     pdf.emptyPDF();
-    std::string rows = pack_rows(image);
+    std::string rows = image.encoding == storage::dct ? image.jpeg : pack_rows(image);
     if (invalid == fault::short_rows) rows.pop_back();
     auto stream = pdf.newStream();
     auto filter = O::newNull(), parms = O::newNull();
-    if (image.encoding != storage::raw) {
+    if (image.encoding == storage::dct) {
+        filter = O::newName("/DCTDecode");
+        if (image.color_transform >= 0) {
+            parms = O::newDictionary();
+            parms.replaceKey("/ColorTransform", O::newInteger(image.color_transform));
+        }
+    } else if (image.encoding != storage::raw) {
         filter = O::newName("/FlateDecode");
         if (image.encoding == storage::tiff || image.encoding == storage::png) {
             parms = O::newDictionary();
@@ -124,7 +132,9 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
     dict.replaceKey("/Width", O::newInteger(image.width));
     dict.replaceKey("/Height", O::newInteger(image.height));
     dict.replaceKey("/BitsPerComponent", O::newInteger(invalid == fault::depth ? 3u : image.bits));
-    dict.replaceKey("/ColorSpace", O::newName(image.channels == 1u ? "/DeviceGray" : "/DeviceRGB"));
+    const char *space = image.channels == 4u ? "/DeviceCMYK" :
+        image.channels == 3u ? "/DeviceRGB" : "/DeviceGray";
+    dict.replaceKey("/ColorSpace", O::newName(space));
     if (image.interpolate) dict.replaceKey("/Interpolate", O::newBool(true));
     if (indexed != nullptr) {
         O lookup = O::newString(indexed->bytes);
@@ -148,6 +158,13 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
     auto objects = O::newDictionary(), resources = O::newDictionary();
     objects.replaceKey("/I", stream);
     resources.replaceKey("/XObject", objects);
+    if (invalid == fault::default_cmyk) {
+        auto profile = pdf.newStream("test-only ICC profile placeholder");
+        profile.getDict().replaceKey("/N", O::newInteger(4));
+        auto spaces = O::newDictionary();
+        spaces.replaceKey("/DefaultCMYK", O::newArray({O::newName("/ICCBased"), profile}));
+        resources.replaceKey("/ColorSpace", spaces);
+    }
     auto page = pdf.makeIndirectObject(O::parse("<< /Type /Page >>"));
     page.replaceKey("/MediaBox", O::parse(media));
     page.replaceKey("/Rotate", O::newInteger(image.rotation));
@@ -173,17 +190,81 @@ inline std::vector<unsigned char> rgb(const specimen& image, bool rotated)
         for (size_t x = 0u; x < image.width; ++x) {
             const size_t src = (y * image.width + x) * image.channels;
             const size_t dst = rotated ? x * image.height + image.height - 1u - y : y * image.width + x;
-            for (size_t c = 0u; c < 3u; ++c) {
-                const size_t lane = image.channels == 1u ? 0u : c;
+            const auto decoded = [&](size_t lane) {
                 const int64_t sample = image.samples[src + lane];
                 const int64_t value = image.decode[2u * lane] * (peak - sample) + image.decode[2u * lane + 1u] * sample;
-                const int64_t clipped = std::clamp<int64_t>(value, 0, denominator);
-                expected[dst * 3u + c] = static_cast<unsigned char>((255 * clipped + denominator / 2) / denominator);
+                return std::clamp<int64_t>(value, 0, denominator);
+            };
+            const int64_t black = image.channels == 4u ? decoded(3u) : 0;
+            for (size_t c = 0u; c < 3u; ++c) {
+                int64_t value = decoded(image.channels == 1u ? 0u : c);
+                if (image.channels == 4u)
+                    value = std::max<int64_t>(0, denominator - value - black);
+                expected[dst * 3u + c] = static_cast<unsigned char>((255 * value + denominator / 2) / denominator);
             }
         }
     }
     return expected;
 }
+// Each JPEG component carries one constant 8x8 block. The quantizer is
+// eight and the decoded component samples are 100, 112, 148, and 120.
+inline constexpr unsigned char baseline_cmyk_jpeg[] = {
+    0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0xff,
+    0xc0, 0x00, 0x14, 0x08, 0x00, 0x08, 0x00, 0x08, 0x04, 0x43, 0x11, 0x00,
+    0x4d, 0x11, 0x00, 0x59, 0x11, 0x00, 0x4b, 0x11, 0x00, 0xff, 0xc4, 0x00,
+    0x2e, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+    0x06, 0x07, 0x08, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xda, 0x00,
+    0x0e, 0x04, 0x43, 0x00, 0x4d, 0x00, 0x59, 0x00, 0x4b, 0x00, 0x00, 0x3f,
+    0x00, 0x51, 0x95, 0xe5, 0xa1, 0x1d, 0xff, 0xd9,
+};
+inline constexpr unsigned char progressive_cmyk_jpeg[] = {
+    0xff, 0xd8, 0xff, 0xdb, 0x00, 0x43, 0x00, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
+    0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0xff,
+    0xc2, 0x00, 0x14, 0x08, 0x00, 0x08, 0x00, 0x08, 0x04, 0x43, 0x11, 0x00,
+    0x4d, 0x11, 0x00, 0x59, 0x11, 0x00, 0x4b, 0x11, 0x00, 0xff, 0xc4, 0x00,
+    0x2e, 0x00, 0x00, 0x00, 0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
+    0x06, 0x07, 0x08, 0x10, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xda, 0x00,
+    0x0e, 0x04, 0x43, 0x00, 0x4d, 0x00, 0x59, 0x00, 0x4b, 0x00, 0x00, 0x00,
+    0x00, 0x51, 0xab, 0xd6, 0x88, 0xff, 0x00, 0xff, 0xda, 0x00, 0x08, 0x01,
+    0x43, 0x00, 0x01, 0x3f, 0x00, 0x7f, 0xff, 0xda, 0x00, 0x08, 0x01, 0x4d,
+    0x00, 0x01, 0x3f, 0x00, 0x7f, 0xff, 0xda, 0x00, 0x08, 0x01, 0x59, 0x00,
+    0x01, 0x3f, 0x00, 0x7f, 0xff, 0xda, 0x00, 0x08, 0x01, 0x4b, 0x00, 0x01,
+    0x3f, 0x00, 0x7f, 0xff, 0xd9,
+};
+
+inline specimen jpeg_cmyk(bool progressive, int adobe, int color_transform, bool invert)
+{
+    specimen image;
+    image.width = image.height = 8u;
+    image.channels = 4u;
+    image.encoding = storage::dct;
+    image.color_transform = color_transform;
+    if (invert) image.decode = {16, 0, 16, 0, 16, 0, 16, 0};
+    if (progressive)
+        image.jpeg.assign(reinterpret_cast<const char*>(progressive_cmyk_jpeg), sizeof(progressive_cmyk_jpeg));
+    else
+        image.jpeg.assign(reinterpret_cast<const char*>(baseline_cmyk_jpeg), sizeof(baseline_cmyk_jpeg));
+    if (adobe >= 0) {
+        unsigned char marker[] = {0xff, 0xee, 0, 14, 'A', 'd', 'o', 'b', 'e', 0, 100, 0, 0, 0, 0, 0};
+        marker[sizeof(marker) - 1u] = static_cast<unsigned char>(adobe);
+        image.jpeg.insert(2u, reinterpret_cast<const char*>(marker), sizeof(marker));
+    }
+    return image;
+}
+
 inline std::vector<unsigned char> indexed_rgb(const specimen& image, const indexed_palette& palette,
     const std::vector<unsigned>& indices, bool rotated)
 {

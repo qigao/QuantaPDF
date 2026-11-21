@@ -65,7 +65,7 @@ quantapdf::detail::image_colors read_image_colors(Obj image, Obj resources, size
     Obj stencil = image.getDict().getKey("/ImageMask");
     require(stencil.isNull() || stencil.isBool());
     require(stencil.isNull() || !stencil.getBoolValue(), QUANTAPDF_ERROR_UNSUPPORTED);
-    return qpdf_read_image_colors(image, resources, pixel_limit);
+    return qpdf_read_image_colors(image, resources, pixel_limit, true);
 }
 
 struct image_value {
@@ -93,6 +93,7 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
         alpha = std::move(mask_colors.samples);
         Obj value = soft.getDict().getKey("/Matte");
         if (!value.isNull()) {
+            require(source.channels != 4u, QUANTAPDF_ERROR_UNSUPPORTED);
             require(!colors.indexed() && value.isArray() &&
                 value.getArrayNItems() == static_cast<int>(source.channels));
             for (unsigned c = 0; c < source.channels; ++c)

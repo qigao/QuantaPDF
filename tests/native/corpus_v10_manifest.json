@@ -193,11 +193,11 @@
       "feature_tags": [
         "image",
         "cmyk",
-        "atomic"
+        "white"
       ],
       "page_index": 0,
-      "expected_status": "UNSUPPORTED",
-      "expected_center_rgb": null,
+      "expected_status": "OK",
+      "expected_center_rgb": "ffffff",
       "width_points": 16,
       "height_points": 12,
       "reference_oracle": "none"

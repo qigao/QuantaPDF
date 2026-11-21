@@ -167,7 +167,8 @@ static quantapdf_status quantapdf_jpeg_read(
     jpeg_mem_src(decoder, data, (unsigned long)size);
     if (jpeg_read_header(decoder, TRUE) != JPEG_HEADER_OK ||
         decoder->data_precision != 8 ||
-        (decoder->num_components != 1 && decoder->num_components != 3))
+        (decoder->num_components != 1 && decoder->num_components != 3 &&
+         (expected == NULL || decoder->num_components != 4)))
         goto cleanup;
     if (expected != NULL &&
         (decoder->image_width != expected->width ||
@@ -184,10 +185,20 @@ static quantapdf_status quantapdf_jpeg_read(
         if (transform != 0 && transform != 1)
             goto cleanup;
         decoder->jpeg_color_space = transform == 0 ? JCS_RGB : JCS_YCbCr;
+        decoder->out_color_space = JCS_RGB;
+    } else if (decoder->num_components == 4) {
+        if (decoder->saw_Adobe_marker) {
+            if (decoder->Adobe_transform != 0 && decoder->Adobe_transform != 2)
+                goto cleanup;
+            transform = decoder->Adobe_transform == 2;
+        } else {
+            transform = color_transform == 1;
+        }
+        decoder->jpeg_color_space = transform == 0 ? JCS_CMYK : JCS_YCCK;
+        decoder->out_color_space = JCS_CMYK;
+    } else {
+        decoder->out_color_space = JCS_GRAYSCALE;
     }
-    decoder->out_color_space = decoder->num_components == 1
-        ? JCS_GRAYSCALE
-        : JCS_RGB;
     if (!quantapdf_size_multiply(
             (size_t)decoder->image_width,
             (size_t)decoder->num_components,

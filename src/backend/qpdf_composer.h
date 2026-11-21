@@ -51,7 +51,7 @@ quantapdf_status quantapdf_jpeg_validate(
 
 /* Decode a PDF image into a private width*height*components byte buffer.
  * The JPEG header must match layout before scanline decoding starts.
- * ColorTransform is -1 (PDF default), 0 (none), or 1 (YCbCr to RGB).
+ * ColorTransform is -1 (PDF default), 0 (none), or 1 (YCbCr or YCCK).
  * An Adobe APP14 marker takes precedence. Discard the buffer on failure. */
 quantapdf_status quantapdf_jpeg_decode(
     const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,

@@ -29,15 +29,16 @@ sourced documents with separate license/provenance admission).
 
 At 72/96/144 DPI, each of 12 originals is executed in canonical order
 and two exact xorshift32/Fisher-Yates permutations (seeds `0x4cf5ad11`
-and `0x9e3779b9`): **108 executions, 54 accepted and 54 atomically
+and `0x9e3779b9`): **108 executions, 63 accepted and 45 atomically
 refused**. Distinct red/green 1x1 images deliberately reuse the resource
 name `/I` across *different* documents; clipped blue Image/PATH cases
 verify no resource/color/Clip state leakage. Bad originals cover missing
 XObject name (FORMAT), late Text with unsupported `Tr=1`, Form XObject,
-DefaultRGB override, late `Tr=1` after Image and unsupported CMYK
-(UNSUPPORTED). Empty `BT/ET` is legal and covered by the Text/path RGB
-matrix. All failed
-renders must publish a null Bitmap, never a partial page.
+DefaultRGB override and late `Tr=1` after Image (UNSUPPORTED). Empty
+`BT/ET` is legal and covered by the Text/path RGB matrix. All failed
+renders must publish a null Bitmap. The original zero-ink CMYK image now
+qualifies a fully white page at each DPI. It retains its original fixture
+ID `reject-cmyk-image`, PDF bytes and SHA-256.
 
 ## Scope and non-claims
 

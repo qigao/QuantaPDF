@@ -398,8 +398,8 @@ struct admission {
         Obj interpolation=dict.getKey("/Interpolate");
         admit(interpolation.isNull() || interpolation.isBool(),QUANTAPDF_ERROR_FORMAT);
         const bool interpolate=interpolation.isBool() && interpolation.getBoolValue();
-        auto colors=quantapdf::detail::qpdf_read_image_colors(image,Obj::newNull(),
-            std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels);
+        auto colors=quantapdf::detail::qpdf_read_image_colors(image,resources,
+            std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels,false);
         const auto& samples=colors.samples;
         source_pixels+=static_cast<size_t>(samples.width)*samples.height;
 
@@ -463,10 +463,10 @@ struct admission {
 
         entry.width=samples.width;
         entry.height=samples.height;
-        entry.components=static_cast<int>(colors.indexed()?colors.palette_channels:samples.channels);
         auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors));
         entry.pixels=std::move(decoded.pixels);
         entry.wide=decoded.wide;
+        entry.components=decoded.components;
         entry.interpolate=interpolate;
         QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));

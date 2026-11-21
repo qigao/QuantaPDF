@@ -3,10 +3,11 @@
 
 #include "native_image_depth_fixture.h"
 
-static int native_image_depth_source_contract(const quantapdf_qpdf_page_limits& defaults, bool indexed)
+static int native_image_depth_source_contract(const quantapdf_qpdf_page_limits& defaults, unsigned channels)
 {
     using namespace native_image_depth;
-    auto specimen = grid(4u, indexed ? 1u : 3u, storage::png);
+    const bool indexed = channels == 1u;
+    auto specimen = grid(4u, channels, storage::png);
     specimen.rotation = 90;
     const indexed_palette palette{"/DeviceRGB", 2u, std::string("\x11\x21\x31\x42\x52\x62\x73\x83\x93", 9u)};
     auto bytes = create(specimen, fault::none, "[0 0 3 2]", "q 3 0 0 2 0 0 cm /I Do Q",
@@ -83,14 +84,14 @@ static int native_image_depth_source_contract(const quantapdf_qpdf_page_limits& 
     --plan.resource_limits.max_live_bytes;
     CHECK(quantapdf_native_execute_page_v1(&plan, nullptr, &out) == QUANTAPDF_ERROR_UNSUPPORTED && zero_bitmap(out));
     std::printf("%s image Source: two vector allocation faults, %zu publication faults, pixel and byte N/N-1\n",
-        indexed ? "Indexed" : "Wide", allocations);
+        indexed ? "Indexed" : channels == 4u ? "CMYK" : "Wide", allocations);
     return EXIT_SUCCESS;
 }
 
 static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits& defaults)
 {
-    for (bool indexed : {false, true})
-        CHECK(native_image_depth_source_contract(defaults, indexed) == EXIT_SUCCESS);
+    for (unsigned channels : {3u, 1u, 4u})
+        CHECK(native_image_depth_source_contract(defaults, channels) == EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 #endif

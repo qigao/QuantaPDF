@@ -43,6 +43,11 @@ public:
     std::vector<unsigned char> bytes;
 };
 
+constexpr double cmyk_channel(double ink, double black, double maximum)
+{
+    return maximum - std::min(maximum, ink + black);
+}
+
 bool is_dct(Obj filter)
 {
     return filter.isName() &&
@@ -220,6 +225,16 @@ unsigned image_samples::value(size_t x, size_t y, unsigned channel, unsigned max
     return static_cast<unsigned>(std::clamp(decoded(x, y, channel), 0.0, 1.0) * maximum + 0.5);
 }
 
+std::array<double, 3u> image_samples::cmyk_rgb(size_t x, size_t y) const
+{
+    const auto ink = [&](unsigned channel) {
+        return std::clamp(decoded(x, y, channel), 0.0, 1.0);
+    };
+    const double black = ink(3u);
+    return {cmyk_channel(ink(0u), black, 1.0), cmyk_channel(ink(1u), black, 1.0),
+        cmyk_channel(ink(2u), black, 1.0)};
+}
+
 namespace {
 
 image_samples read_image_samples(Obj image, unsigned channels, bool indexed, size_t pixel_limit)
@@ -269,12 +284,19 @@ image_samples read_image_samples(Obj image, unsigned channels, bool indexed, siz
     return result;
 }
 
+unsigned device_channels(const Obj& value)
+{
+    if (value.isNameAndEquals("/DeviceGray")) return 1u;
+    if (value.isNameAndEquals("/DeviceRGB")) return 3u;
+    if (value.isNameAndEquals("/DeviceCMYK")) return 4u;
+    return 0u;
+}
+
 Obj resolve_image_color_space(Obj value, Obj resources)
 {
     std::set<std::string> seen;
-    while (value.isName()) {
+    while (value.isName() && device_channels(value) == 0u) {
         std::string name = value.getName();
-        if (name == "/DeviceRGB" || name == "/DeviceGray") return value;
         Obj spaces = resources.isDictionary() ? resources.getKey("/ColorSpace") : Obj::newNull();
         require(spaces.isDictionary(), QUANTAPDF_ERROR_UNSUPPORTED);
         require(seen.size() < 16u && seen.insert(name).second);
@@ -300,6 +322,12 @@ std::array<unsigned char, 3u> image_colors::rgb(size_t x, size_t y) const
         if (palette_channels == 1u) return {color[0], color[0], color[0]};
         return {color[0], color[1], color[2]};
     }
+    if (samples.channels == 4u) {
+        const auto color = samples.cmyk_rgb(x, y);
+        return {static_cast<unsigned char>(color[0] * 255u + 0.5),
+            static_cast<unsigned char>(color[1] * 255u + 0.5),
+            static_cast<unsigned char>(color[2] * 255u + 0.5)};
+    }
     const auto channel = [&](unsigned c) {
         return static_cast<unsigned char>(samples.value(x, y, c, 255u));
     };
@@ -311,23 +339,32 @@ std::array<unsigned char, 3u> image_colors::rgb(size_t x, size_t y) const
 }
 
 image_colors qpdf_read_image_colors(Obj image, Obj resources,
-    size_t pixel_limit)
+    size_t pixel_limit, bool resolve_names)
 {
     Obj dict = image.getDict();
     image_colors result;
-    Obj space = resolve_image_color_space(dict.getKey("/ColorSpace"), resources);
+    const auto resolve = [&](Obj value) {
+        return resolve_names ? resolve_image_color_space(value, resources) : value;
+    };
+    const auto channels_for = [&](const Obj& space) {
+        const unsigned channels = device_channels(space);
+        require(channels != 0u, QUANTAPDF_ERROR_UNSUPPORTED);
+        if (channels == 4u && resources.isDictionary())
+            require(resources.getKeyIfDict("/ColorSpace").getKeyIfDict("/DefaultCMYK").isNull(),
+                QUANTAPDF_ERROR_UNSUPPORTED);
+        return channels;
+    };
+    Obj space = resolve(dict.getKey("/ColorSpace"));
     unsigned channels;
     if (space.isArray()) {
         require(space.getArrayNItems() == 4 && space.getArrayItem(0).isName() &&
             space.getArrayItem(0).getName() == "/Indexed", QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj base = resolve_image_color_space(space.getArrayItem(1), resources);
-        require(base.isName() && (base.getName() == "/DeviceRGB" ||
-            base.getName() == "/DeviceGray"), QUANTAPDF_ERROR_UNSUPPORTED);
+        const unsigned base_channels = channels_for(resolve(space.getArrayItem(1)));
         Obj high = space.getArrayItem(2);
         require(high.isInteger() && high.getIntValue() >= 0 && high.getIntValue() <= 255);
         result.high = static_cast<unsigned>(high.getIntValue());
-        result.palette_channels = base.getName() == "/DeviceRGB" ? 3u : 1u;
-        const size_t length = (static_cast<size_t>(result.high) + 1u) * result.palette_channels;
+        const size_t count = static_cast<size_t>(result.high) + 1u;
+        const size_t length = count * base_channels;
         Obj lookup = space.getArrayItem(3);
         if (lookup.isString()) {
             const std::string data = lookup.getStringValue();
@@ -337,11 +374,21 @@ image_colors qpdf_read_image_colors(Obj image, Obj resources,
             result.palette = qpdf_read_stream(lookup, length, qpdf_dl_specialized);
         }
         require(result.palette.size() == length);
+        result.palette_channels = base_channels;
+        if (base_channels == 4u) {
+            // Convert each palette entry once, before image sampling.
+            for (size_t i = 0u; i < count; ++i) {
+                const unsigned black = result.palette[4u * i + 3u];
+                for (size_t c = 0u; c < 3u; ++c)
+                    result.palette[3u * i + c] = static_cast<unsigned char>(
+                        cmyk_channel(result.palette[4u * i + c], black, 255u));
+            }
+            result.palette.resize(3u * count);
+            result.palette_channels = 3u;
+        }
         channels = 1u;
     } else {
-        require(space.isName() && (space.getName() == "/DeviceGray" ||
-            space.getName() == "/DeviceRGB"), QUANTAPDF_ERROR_UNSUPPORTED);
-        channels = space.getName() == "/DeviceGray" ? 1u : 3u;
+        channels = channels_for(space);
     }
     result.samples = read_image_samples(image, channels, result.indexed(), pixel_limit);
     return result;
@@ -351,6 +398,8 @@ namespace {
 
 device_image_samples normalize_device_samples(image_samples&& samples)
 {
+    const bool cmyk = samples.channels == 4u;
+    const int components = cmyk ? 3 : static_cast<int>(samples.channels);
     bool identity = true;
     bool wide = samples.bits == 16u;
     for (unsigned c = 0u; c < samples.channels; ++c) {
@@ -361,15 +410,16 @@ device_image_samples normalize_device_samples(image_samples&& samples)
         wide |= !direct && !inverted;
     }
     const unsigned output_bits = wide ? 16u : 8u;
-    if (identity && samples.bits == output_bits)
-        return {std::move(samples.bytes), wide};
+    if (!cmyk && identity && samples.bits == output_bits)
+        return {std::move(samples.bytes), wide, components};
 
     const size_t bytes_per_sample = output_bits / 8u;
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height *
-        samples.channels * bytes_per_sample;
+        components * bytes_per_sample;
+    const bool separate_buffer = cmyk || samples.bits != output_bits;
     std::vector<unsigned char> expanded;
     auto *destination = samples.bytes.data();
-    if (samples.bits != output_bits) {
+    if (separate_buffer) {
         require(output_size <= image_work_limit - samples.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
         quantapdf_source_stage_oom_arm(14u);
@@ -378,16 +428,22 @@ device_image_samples normalize_device_samples(image_samples&& samples)
         destination = expanded.data();
     }
     const unsigned maximum = wide ? 65535u : 255u;
+    const auto write_sample = [&](unsigned value) {
+        if (wide) *destination++ = static_cast<unsigned char>(value >> 8u);
+        *destination++ = static_cast<unsigned char>(value);
+    };
     for (size_t y = 0u; y < samples.height; ++y) {
         for (size_t x = 0u; x < samples.width; ++x) {
-            for (unsigned c = 0u; c < samples.channels; ++c) {
-                const unsigned value = samples.value(x, y, c, maximum);
-                if (wide) *destination++ = static_cast<unsigned char>(value >> 8u);
-                *destination++ = static_cast<unsigned char>(value);
+            if (cmyk) {
+                for (double value : samples.cmyk_rgb(x, y))
+                    write_sample(static_cast<unsigned>(value * maximum + 0.5));
+            } else {
+                for (unsigned c = 0u; c < samples.channels; ++c)
+                    write_sample(samples.value(x, y, c, maximum));
             }
         }
     }
-    return {samples.bits == output_bits ? std::move(samples.bytes) : std::move(expanded), wide};
+    return {separate_buffer ? std::move(expanded) : std::move(samples.bytes), wide, components};
 }
 
 } // namespace
@@ -412,7 +468,7 @@ device_image_samples qpdf_normalize_image_colors(image_colors&& colors)
             destination = std::copy_n(color, colors.palette_channels, destination);
         }
     }
-    return {std::move(pixels), false};
+    return {std::move(pixels), false, static_cast<int>(colors.palette_channels)};
 }
 
 } // namespace quantapdf::detail

@@ -789,6 +789,19 @@
 - 扩展现有公开图像及 Source/OOM 用例，覆盖两种调色板形式、五种位深、TIFF／PNG
   predictor、Decode、Clip 内的基色插值、旋转后的 RGBA 和实际分配故障。
 
+### A4 不透明 DeviceCMYK 图像
+
+- Source 与独立提取共用四通道 RAW／Flate 样本、TIFF／PNG predictor 及八项
+  Decode。对各通道先应用 Decode 并限制到 0–1，再按
+  [PDF 32000-1 §10.3.5](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)
+  将 CMY 与黑版转换为 RGB。16 位和非满量程样本以 16 位 RGB 进入现有 Scene。
+- DCTDecode 支持顺序和渐进式 CMYK／YCCK。APP14 决定 JPEG 色彩变换，PDF
+  ColorTransform 在无 APP14 时生效，Decode 决定各通道是否反转。
+- 支持 Indexed 的 DeviceCMYK 调色板，每个条目转换一次。使用 DefaultCMYK 的
+  图像需要其声明的色彩空间转换，当前会返回不支持。ICC 色彩管理和图像遮罩仍待完成。
+- 扩展已有图像测试，比较 CMYK／YCCK JPEG、五种 RAW／Flate 位深、Indexed
+  及 16 位插值的整页和提取 RGB。Source/OOM 核对颜色展开、旋转和 IR 发布失败。
+
 ## 单一执行模型
 
 ```mermaid
@@ -825,7 +838,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
-| A4 图像与色彩 | 不透明 Gray/RGB 支持仿射和插值，顺序与渐进式 JPEG 已验收。RAW/Flate 多位深、Decode 与 Gray/RGB 基色 Indexed 见上文 | CMYK、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、image mask/SMask | P1 |
+| A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射和插值，具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、image mask/SMask | P1 |
 | A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
@@ -869,7 +882,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 
 ### A4：真实图像
 
-- 补足 RAW/Flate 和 JPEG 的位深、CMYK/Indexed、Decode/predictors 能力。
+- 继续补足 RAW/Flate 和 JPEG 的色彩空间、位深及 Decode/predictors 能力。
 - 再补扫描 PDF 的 CCITT/JBIG2、JPX，及 ICCBased/Lab/Separation/DeviceN 等色彩路径；
   解码和色彩转换按明确 PDF filter/color space 分派，不轮流尝试 codec 猜格式。
 - Inline image、stencil、SMask 与 alpha 在正确坐标和合成模型中工作。
