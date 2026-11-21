@@ -308,6 +308,55 @@ static int native_image_depth_cases(const std::string& filename)
             {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
     }
 
+    const auto render_stencil = [&](const std::string& original,
+        unsigned width, unsigned height, const std::vector<unsigned char>& reference,
+        quantapdf_status wanted = QUANTAPDF_OK) -> int {
+        CHECK(write_pdf(filename, original));
+        quantapdf_document *raw_document = nullptr;
+        OK(quantapdf_open(filename.c_str(), nullptr, &raw_document));
+        std::unique_ptr<quantapdf_document, decltype(&quantapdf_close)> document(raw_document, quantapdf_close);
+        CHECK(std::remove(filename.c_str()) == 0);
+        quantapdf_page *raw_page = nullptr;
+        OK(quantapdf_load_page(document.get(), 0u, &raw_page));
+        std::unique_ptr<quantapdf_page, decltype(&quantapdf_drop_page)> page(raw_page, quantapdf_drop_page);
+        quantapdf_bitmap *raw_bitmap = nullptr;
+        const auto status = quantapdf_render_page(page.get(), &raw_bitmap);
+        bitmap_owner bitmap(raw_bitmap, quantapdf_drop_bitmap);
+        CHECK(status == wanted);
+        CHECK(wanted == QUANTAPDF_OK ? matches(bitmap.get(), width, height, reference) : !bitmap);
+        return EXIT_SUCCESS;
+    };
+
+    specimen stencil;
+    stencil.width = 2u;
+    stencil.height = 1u;
+    stencil.bits = 1u;
+    stencil.samples = {0u, 1u};
+    stencil.stencil_entries = "/BitsPerComponent null";
+    CHECK(render_stencil(create(stencil, fault::none, "[0 0 2 1]", "q 2 0 0 1 0 0 cm /I Do Q"),
+        2u, 1u, {0u, 0u, 0u, 255u, 255u, 255u}) == EXIT_SUCCESS);
+
+    // Reuse the XObject with a different fill in the same q frame as a clip
+    // and BT/ET. Q must restore both the red fill and the original clip.
+    const std::vector<unsigned char> stencil_scene{
+        255u,0u,0u, 255u,0u,0u, 0u,255u,0u, 0u,255u,0u,
+        64u,64u,64u, 0u,255u,0u, 0u,255u,0u, 0u,255u,0u,
+        255u,0u,0u, 255u,0u,0u, 0u,255u,0u, 0u,255u,0u};
+    CHECK(render_stencil(create(stencil, fault::none, "[0 0 4 3]",
+        "0 1 0 rg 0 0 4 3 re f 1 0 0 rg 0 0 1 RG q 4 0 0 1 0 2 cm /I Do Q "
+        "q 0.25 g 0 0 1 2 re W n BT ET 4 0 0 1 0 1 cm /I Do Q "
+        "q 4 0 0 1 0 0 cm /I Do Q"), 4u, 3u, stencil_scene) == EXIT_SUCCESS);
+
+    stencil.encoding = storage::flate;
+    stencil.stencil_entries = "/Decode [1 0] /Interpolate true";
+    stencil.rotation = 90;
+    const std::vector<unsigned char> green_half_blue{0u,255u,0u, 0u,128u,128u, 0u,0u,255u};
+    CHECK(render_stencil(create(stencil, fault::none, "[0 0 3 1]",
+        "0 1 0 rg 0 0 3 1 re f BT ET 0 0 1 rg q 3 0 0 1 0 0 cm /I Do Q"),
+        1u, 3u, green_half_blue) == EXIT_SUCCESS);
+    stencil.stencil_entries = "/Decode [1 1]";
+    CHECK(render_stencil(create(stencil), 0u, 0u, {}, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+
     CHECK(rendered == 84u && extracted == 84u && denied == 19u);
     std::printf("Image depth: %zu full-page RGB matches, %zu extracted bitmap matches, %zu atomic errors\n",
         rendered, extracted, denied);

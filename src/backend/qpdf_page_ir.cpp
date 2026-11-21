@@ -368,7 +368,7 @@ struct admission {
         order.push_back(1);
     }
 
-    void execute(Obj image,const matrix& ctm)
+    void execute(Obj image,const matrix& ctm,const std::array<double,3>& fill)
     {
         admit(std::none_of(painted_paths.begin(),painted_paths.end(),
                   [](const staged_path& p){return p.stroke;}),
@@ -382,8 +382,8 @@ struct admission {
         admit(type.isNull() || (type.isName() && type.getName()=="/XObject"),
               QUANTAPDF_ERROR_UNSUPPORTED);
         Obj mask=dict.getKey("/ImageMask");
-        admit(mask.isNull() || (mask.isBool() && !mask.getBoolValue()),
-              QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(mask.isNull() || mask.isBool(),QUANTAPDF_ERROR_UNSUPPORTED);
+        const bool stencil=mask.isBool() && mask.getBoolValue();
         admit(dict.getKey("/SMask").isNull() &&
               dict.getKey("/Alternates").isNull() &&
               dict.getKey("/OPI").isNull() &&
@@ -395,14 +395,6 @@ struct admission {
               dict.getKey("/SMaskInData").isNull() &&
               dict.getKey("/Intent").isNull(),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        Obj interpolation=dict.getKey("/Interpolate");
-        admit(interpolation.isNull() || interpolation.isBool(),QUANTAPDF_ERROR_FORMAT);
-        const bool interpolate=interpolation.isBool() && interpolation.getBoolValue();
-        auto colors=quantapdf::detail::qpdf_read_image_colors(image,resources,
-            std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels,false);
-        const auto& samples=colors.samples;
-        source_pixels+=static_cast<size_t>(samples.width)*samples.height;
-
         const bool axis=ctm[1]==0.0 && ctm[2]==0.0 && ctm[0]>0.0 && ctm[3]>0.0;
         const bool ordered=ordered_scene();
         const double determinant=ctm[0]*ctm[3]-ctm[1]*ctm[2];
@@ -461,16 +453,37 @@ struct admission {
               QUANTAPDF_ERROR_UNSUPPORTED);
         drawn_pixels+=draw_area;
 
-        entry.width=samples.width;
-        entry.height=samples.height;
-        auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict.getKey("/Mask"),
-            std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels);
-        if(decoded.alpha.width!=0u)source_pixels+=decoded.alpha.bytes.size();
-        entry.pixels=std::move(decoded.pixels);
-        entry.alpha=std::move(decoded.alpha);
-        entry.wide=decoded.wide;
-        entry.components=decoded.components;
-        entry.interpolate=interpolate;
+        const size_t source_limit=std::min(limits.max_source_pixels,hard_image_pixels);
+        if(stencil) {
+            std::array<unsigned char,3> color;
+            for(size_t i=0u;i<color.size();++i) {
+                admit(fill[i]>=0.0 && fill[i]<=1.0,QUANTAPDF_ERROR_UNSUPPORTED);
+                color[i]=static_cast<unsigned char>(fill[i]*255.0+0.5);
+            }
+            // One constant color texel shares the unit square with the stencil grid.
+            admit(source_pixels<source_limit,QUANTAPDF_ERROR_UNSUPPORTED);
+            entry.alpha=quantapdf::detail::qpdf_read_stencil(image,source_limit-source_pixels-1u,color.size());
+            QP_SOURCE_STAGE_ARM(14u);
+            entry.pixels.assign(color.begin(),color.end());
+            entry.width=entry.height=1u;
+            entry.components=static_cast<int>(color.size());
+            source_pixels+=1u+entry.alpha.bytes.size();
+        } else {
+            Obj interpolation=dict.getKey("/Interpolate");
+            admit(interpolation.isNull() || interpolation.isBool(),QUANTAPDF_ERROR_FORMAT);
+            auto colors=quantapdf::detail::qpdf_read_image_colors(image,resources,source_limit-source_pixels,false);
+            entry.width=colors.samples.width;
+            entry.height=colors.samples.height;
+            source_pixels+=static_cast<size_t>(entry.width)*entry.height;
+            auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict.getKey("/Mask"),
+                source_limit-source_pixels);
+            if(decoded.alpha.width!=0u)source_pixels+=decoded.alpha.bytes.size();
+            entry.pixels=std::move(decoded.pixels);
+            entry.alpha=std::move(decoded.alpha);
+            entry.wide=decoded.wide;
+            entry.components=decoded.components;
+            entry.interpolate=interpolation.isBool() && interpolation.getBoolValue();
+        }
         QP_SOURCE_STAGE_ARM(1u);
         draws.push_back(std::move(entry));
         QP_SOURCE_STAGE_ARM(2u);
@@ -547,11 +560,11 @@ quantapdf_status source_text_paint(void *user,clip_identity clip)
       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
 quantapdf_status source_image_paint(void *user,Obj image,
-    const matrix& ctm,clip_identity clip)
+    const matrix& ctm,const std::array<double,3>& fill,clip_identity clip)
 {
     auto& source=*static_cast<admission*>(user);
     try {
-        source.execute(image,ctm);
+        source.execute(image,ctm,fill);
         source.scoped_clip_membership.push_back(clip);
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
@@ -609,7 +622,9 @@ public:
                 scoped_saved,
                 {this,
                  [](void *u,clip_identity clip){return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip);},
-                 [](void *u,Obj image,const matrix& ctm,clip_identity clip){return source_image_paint(&static_cast<page_content_reader*>(u)->target,image,ctm,clip);},
+                 [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,clip_identity clip){
+                     return source_image_paint(&static_cast<page_content_reader*>(u)->target,image,ctm,fill,clip);
+                 },
                  text_path},outline_reader);
             admit(setup==QUANTAPDF_OK,setup);
             const auto status=outline_reader->consume(item);
@@ -815,7 +830,7 @@ public:
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj named=xobjects.getKey(args[0].getName());
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
-            target.execute(named,current);
+            target.execute(named,current,quantapdf::detail::source_rgb_channels(fill_argb));
             QP_SOURCE_STAGE_ARM(6u);
             target.scoped_clip_membership.push_back(clip_active);
         } else if(op=="rg") {

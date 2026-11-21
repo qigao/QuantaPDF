@@ -4717,10 +4717,9 @@ int main(int argc,char **argv)
         const bool unclipped_images=mode==6 || mode==17 || mode==18 ||
                                    mode==20 || mode==21;
         if(mode>=4 && !clipped && !unclipped_images) {
-            /* Unknown /J is an invalid resource; an unmatched Q is
-             * malformed original-PDF graphics-stack syntax. Both are
-             * FORMAT failures, not ordinary unsupported features. */
-            const auto rejection=(mode==7 || mode==14 || mode==15) ?
+            /* Invalid resources, malformed stencil dictionaries and unmatched
+             * Q operators are original-PDF format errors. */
+            const auto rejection=(mode==7 || mode==8 || mode==14 || mode==15) ?
                 QUANTAPDF_ERROR_FORMAT : QUANTAPDF_ERROR_UNSUPPORTED;
             if(result!=rejection || rendered!=nullptr)
                 std::fprintf(stderr,

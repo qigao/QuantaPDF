@@ -425,7 +425,7 @@ bool image_sample_is_masked(const image_samples& samples, const std::vector<unsi
     return true;
 }
 
-image_alpha_plane qpdf_read_explicit_mask(Obj mask, size_t pixel_limit, size_t color_bytes)
+image_alpha_plane qpdf_read_stencil(Obj mask, size_t pixel_limit, size_t color_bytes)
 {
     Obj dict = mask.getDict();
     Obj type = dict.getKey("/Type");
@@ -515,7 +515,7 @@ device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj mask
     const auto& samples = colors.samples;
     image_alpha_plane alpha;
     if (mask.isStream()) {
-        alpha = qpdf_read_explicit_mask(mask, mask_pixel_limit, samples.bytes.size() + colors.palette.size());
+        alpha = qpdf_read_stencil(mask, mask_pixel_limit, samples.bytes.size() + colors.palette.size());
     } else if (const auto key = qpdf_read_color_key(mask, samples); !key.empty()) {
         const size_t count = static_cast<size_t>(samples.width) * samples.height;
         require(count <= image_work_limit - samples.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);

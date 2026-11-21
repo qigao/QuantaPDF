@@ -14,6 +14,12 @@ struct source_outline_glyph { std::vector<quantapdf_composer_path_command> comma
 struct source_outline_paint {
     std::vector<source_outline_glyph> glyphs; uint32_t argb;
 };
+inline std::array<double,3> source_rgb_channels(uint32_t argb)
+{
+    return {static_cast<double>((argb>>16u)&255u)/255,
+            static_cast<double>((argb>>8u)&255u)/255,
+            static_cast<double>(argb&255u)/255};
+}
 struct source_text_seed {
     std::array<double,6> ctm;
     uint32_t argb;
@@ -27,7 +33,7 @@ struct source_mixed_callbacks {
     void *user=nullptr;
     quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
-        const std::array<double,6>&,quantapdf_composer_clip_id)=nullptr;
+        const std::array<double,6>&,const std::array<double,3>&,quantapdf_composer_clip_id)=nullptr;
     /* Ordinary page paths retain one owner across BT. Operands are passed
      * directly once; the page reader freezes the supplied current state and
      * checks that BT does not enter an unfinished path object. */

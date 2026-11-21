@@ -104,7 +104,7 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
     quantapdf::detail::image_alpha_plane explicit_mask;
     std::vector<unsigned> color_key;
     if (mask.isStream())
-        explicit_mask = quantapdf::detail::qpdf_read_explicit_mask(mask,
+        explicit_mask = quantapdf::detail::qpdf_read_stencil(mask,
             (max_pixel_bytes - limits.pixels) / 4u - count, source.bytes.size() + colors.palette.size());
     else
         color_key = quantapdf::detail::qpdf_read_color_key(mask, source);

@@ -126,12 +126,52 @@ static int native_image_depth_source_contract(const quantapdf_qpdf_page_limits& 
     return EXIT_SUCCESS;
 }
 
+static int native_stencil_source_contract(const quantapdf_qpdf_page_limits& defaults)
+{
+    using namespace native_image_depth;
+    specimen stencil;
+    stencil.width = 2u;
+    stencil.height = 1u;
+    stencil.bits = 1u;
+    stencil.samples = {0u, 1u};
+    stencil.stencil_entries = "";
+    const auto bytes = create(stencil, fault::none, "[0 0 2 1]",
+        "BT ET 0 1 0 rg q 2 0 0 1 0 0 cm /I Do Q");
+    quantapdf_qpdf_document *raw = nullptr;
+    CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(bytes.data()),
+        bytes.size(), "", &raw) == QUANTAPDF_OK);
+    const std::unique_ptr<quantapdf_qpdf_document, decltype(&quantapdf_qpdf_close)> document(raw, quantapdf_qpdf_close);
+    quantapdf_ir ir{};
+    const auto dispose_ir = std::unique_ptr<quantapdf_ir, decltype(&quantapdf_ir_dispose)>(&ir, quantapdf_ir_dispose);
+    auto source = defaults;
+    source.max_source_pixels = 2u;
+    CHECK(quantapdf_qpdf_page_to_ir(document.get(), 0u, &source, &ir) == QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));
+    ++source.max_source_pixels;
+    for (unsigned phase : {15u, 14u}) {
+        target = phase;
+        observed = faults = 0u;
+        armed = false;
+        CHECK(quantapdf_qpdf_page_to_ir(document.get(), 0u, &source, &ir) == QUANTAPDF_ERROR_NOMEM && cleared(ir));
+        CHECK(target == 0u && observed == phase && faults == 1u && !armed);
+    }
+    CHECK(quantapdf_qpdf_page_to_ir(document.get(), 0u, &source, &ir) == QUANTAPDF_OK);
+    CHECK(ir.operation_count == 1u && ir.resources.image_count == 1u);
+    const auto& image = ir.resources.images[0];
+    const std::array<unsigned char, 3u> green{0u, 255u, 0u};
+    CHECK(image.width == 1u && image.height == 1u && image.components == 3 && image.size == green.size() &&
+        std::memcmp(image.data, green.data(), green.size()) == 0);
+    CHECK(image.has_alpha && image.mask_width == 2u && image.mask_height == 1u &&
+        image.alpha_size == 2u && image.alpha_data[0] == 255u && image.alpha_data[1] == 0u);
+    return EXIT_SUCCESS;
+}
+
 static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits& defaults)
 {
     for (unsigned channels : {3u, 1u, 4u})
         CHECK(native_image_depth_source_contract(defaults, channels) == EXIT_SUCCESS);
     CHECK(native_image_depth_source_contract(defaults, 1u, true) == EXIT_SUCCESS);
     CHECK(native_image_depth_source_contract(defaults, 1u, true, true) == EXIT_SUCCESS);
+    CHECK(native_stencil_source_contract(defaults) == EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 #endif

@@ -49,7 +49,7 @@ struct image_alpha_plane {
     bool interpolate = false;
 };
 
-image_alpha_plane qpdf_read_explicit_mask(QPDFObjectHandle mask, size_t pixel_limit, size_t color_bytes);
+image_alpha_plane qpdf_read_stencil(QPDFObjectHandle mask, size_t pixel_limit, size_t color_bytes);
 
 struct device_image_samples {
     std::vector<unsigned char> pixels;

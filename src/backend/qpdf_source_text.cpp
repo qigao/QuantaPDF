@@ -706,7 +706,7 @@ public:
         } else if(op=="Do" && p.outline_mode) {
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
             const Obj image=resource("/XObject",args[0]);
-            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.clip_id);
+            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.fill,g.clip_id);
             need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs") {
@@ -838,9 +838,7 @@ namespace {
 graphics outline_graphics(source_text_seed const& seed)
 {
     graphics g;g.ctm=seed.ctm;g.clip_id=seed.clip_id;
-    g.fill={static_cast<double>((seed.argb>>16u)&255u)/255,
-            static_cast<double>((seed.argb>>8u)&255u)/255,
-            static_cast<double>(seed.argb&255u)/255};
+    g.fill=source_rgb_channels(seed.argb);
     return g;
 }
 template<class F> quantapdf_status outline_result(F f)

@@ -21,6 +21,7 @@ struct specimen {
     std::string jpeg;
     int color_transform = -1;
     const char *mask = nullptr;
+    const char *stencil_entries = nullptr;
 };
 
 struct indexed_palette {
@@ -176,6 +177,13 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
             decode.push_back(O::parse(std::to_string(image.decode[c] / 16.0)));
         if (invalid == fault::decode_length) decode.pop_back();
         dict.replaceKey("/Decode", O::newArray(decode));
+    }
+
+    if (image.stencil_entries != nullptr) {
+        dict.removeKey("/ColorSpace");
+        dict.replaceKey("/ImageMask", O::newBool(true));
+        auto extra = O::parse(std::string("<< ") + image.stencil_entries + " >>");
+        for (const auto& key : extra.getKeys()) dict.replaceKey(key, extra.getKey(key));
     }
 
     auto objects = O::newDictionary(), resources = O::newDictionary();
