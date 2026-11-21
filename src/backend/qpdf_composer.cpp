@@ -2036,6 +2036,23 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         QPDFObjectHandle::newInteger(image.jpeg_color_transform));
                     dictionary.replaceKey("/DecodeParms", parameters);
                 }
+            } else if (image.mask_width != 0u) {
+                const size_t row_bytes = (static_cast<size_t>(image.mask_width) - 1u) / 8u + 1u;
+                std::string bits(row_bytes * image.mask_height, '\0');
+                for (size_t y = 0; y < image.mask_height; ++y)
+                    for (size_t x = 0; x < image.mask_width; ++x)
+                        if (image.alpha_data[y * image.mask_width + x] == 0u)
+                            bits[y * row_bytes + x / 8u] |= static_cast<char>(0x80u >> (x % 8u));
+                auto mask = pdf.newStream(bits);
+                auto mask_dictionary = mask.getDict();
+                mask_dictionary.replaceKey("/Type", QPDFObjectHandle::newName("/XObject"));
+                mask_dictionary.replaceKey("/Subtype", QPDFObjectHandle::newName("/Image"));
+                mask_dictionary.replaceKey("/Width", QPDFObjectHandle::newInteger(image.mask_width));
+                mask_dictionary.replaceKey("/Height", QPDFObjectHandle::newInteger(image.mask_height));
+                mask_dictionary.replaceKey("/ImageMask", QPDFObjectHandle::newBool(true));
+                if (image.mask_interpolate)
+                    mask_dictionary.replaceKey("/Interpolate", QPDFObjectHandle::newBool(true));
+                dictionary.replaceKey("/Mask", mask);
             } else if (image.has_alpha) {
                 auto alpha_stream = pdf.newStream(std::string(
                     reinterpret_cast<char const*>(image.alpha_data),

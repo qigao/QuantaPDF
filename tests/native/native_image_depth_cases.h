@@ -265,8 +265,51 @@ static int native_image_depth_cases(const std::string& filename)
             QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
     }
 
-    CHECK(rendered == 80u && extracted == 80u && denied == 13u);
-    std::printf("Image depth: %zu full-page RGB matches, %zu extracted RGB matches, %zu atomic errors\n",
+    // A 1x1 image covers both cells of an independent 2x1 alpha grid.
+    specimen placed;
+    placed.width = placed.height = 1u;
+    placed.channels = 3u;
+    placed.samples = {0u, 0u, 255u};
+    bitmap_mask explicit_mask{2u, 1u, std::string(1u, '\x7f')};
+    const std::vector<unsigned char> no_ink{0u, 0u, 0u, 0u};
+    const std::vector<unsigned char> blue_blue_white_white{
+        0u, 0u, 255u, 0u, 0u, 255u, 255u, 255u, 255u, 255u, 255u, 255u};
+    CHECK(execute(placed, create(placed, fault::none, "[0 0 4 1]",
+        "q 4 0 0 1 0 0 cm /I Do Q", nullptr, &explicit_mask), blue_blue_white_white,
+        4u, 1u, QUANTAPDF_OK, &no_ink, false, true) == EXIT_SUCCESS);
+
+    explicit_mask = {1u, 2u, std::string("\x7f\xff", 2u), "/Decode [1 0] /BitsPerComponent 1", true};
+    placed.rotation = 90;
+    CHECK(execute(placed, create(placed, fault::none, "[0 0 1 4]",
+        "q 1 0 0 4 0 0 cm /I Do Q", nullptr, &explicit_mask), blue_blue_white_white,
+        4u, 1u, QUANTAPDF_OK) == EXIT_SUCCESS);
+
+    placed.rotation = 0;
+    explicit_mask = {2u, 1u, std::string(1u, '\x40'), "/Interpolate true"};
+    const std::vector<unsigned char> half_blue{0u, 0u, 128u, 128u};
+    const std::vector<unsigned char> blue_half_green{0u, 0u, 255u, 0u, 128u, 128u, 0u, 255u, 0u};
+    constexpr const char *paint = "0 1 0 rg 0 0 3 1 re f q 0 0 3 1 re W n 3 0 0 1 0 0 cm /I Do Q";
+    CHECK(execute(placed, create(placed, fault::none, "[0 0 3 1]", paint, nullptr, &explicit_mask),
+        blue_half_green, 3u, 1u, QUANTAPDF_OK, &half_blue, false, true) == EXIT_SUCCESS);
+
+    placed.width = 2u;
+    placed.bits = 16u;
+    placed.samples = {65535u, 0u, 0u, 0u, 0u, 65535u};
+    placed.interpolate = true;
+    const std::vector<unsigned char> red_mix_green{255u, 0u, 0u, 64u, 128u, 64u, 0u, 255u, 0u};
+    const std::vector<unsigned char> red_then_transparent{255u, 0u, 0u, 255u, 0u, 0u, 0u, 0u};
+    CHECK(execute(placed, create(placed, fault::none, "[0 0 3 1]", paint, nullptr, &explicit_mask),
+        red_mix_green, 3u, 1u, QUANTAPDF_OK, &red_then_transparent, false, true) == EXIT_SUCCESS);
+
+    for (const char *entries : {"/ImageMask false", "/Decode [0 0]", "/BitsPerComponent 8",
+                                "/ColorSpace /DeviceGray", "/Mask [0 0]", "/Interpolate /Yes"}) {
+        explicit_mask.entries = entries;
+        CHECK(execute(placed, create(placed, fault::none, "[0 0 3 1]", paint, nullptr, &explicit_mask),
+            {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    }
+
+    CHECK(rendered == 84u && extracted == 84u && denied == 19u);
+    std::printf("Image depth: %zu full-page RGB matches, %zu extracted bitmap matches, %zu atomic errors\n",
         rendered, extracted, denied);
     return EXIT_SUCCESS;
 }

@@ -178,6 +178,12 @@ quantapdf_status quantapdf_validate_ir(
             v->alpha_size <= SIZE_MAX - v->size &&
             (v->has_alpha ? v->alpha_data != NULL && v->alpha_size != 0 : v->alpha_size == 0),
             QUANTAPDF_VALIDATION_IMAGE, i);
+        if (v->mask_width != 0u || v->mask_height != 0u || v->mask_interpolate != 0) {
+            size_t mask_pixels;
+            VALUE((v->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW ||
+                v->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) &&
+                quantapdf_image_alpha_layout(v, 0u, &mask_pixels), QUANTAPDF_VALIDATION_IMAGE, i);
+        }
     }
     for (i = 0; i < r->font_count; ++i)
         VALUE(r->fonts[i].data != NULL && r->fonts[i].size != 0, QUANTAPDF_VALIDATION_FONT, i);

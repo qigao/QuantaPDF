@@ -157,7 +157,7 @@ matrix concat(const matrix& parent,const matrix& child)
 
 struct staged_image {
     std::vector<unsigned char> pixels;
-    std::vector<unsigned char> alpha;
+    quantapdf::detail::image_alpha_plane alpha;
     uint32_t width=0,height=0;
     int components=0;
     bool wide=false;
@@ -463,7 +463,9 @@ struct admission {
 
         entry.width=samples.width;
         entry.height=samples.height;
-        auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict.getKey("/Mask"));
+        auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict.getKey("/Mask"),
+            std::min(limits.max_source_pixels,hard_image_pixels)-source_pixels);
+        if(decoded.alpha.width!=0u)source_pixels+=decoded.alpha.bytes.size();
         entry.pixels=std::move(decoded.pixels);
         entry.alpha=std::move(decoded.alpha);
         entry.wide=decoded.wide;
@@ -1602,28 +1604,27 @@ void original_turn_image(staged_image& image,
           w<=hard_image_pixels/h && w*h<=SIZE_MAX/pixel_bytes &&
           image.pixels.size()==w*h*pixel_bytes,
           QUANTAPDF_ERROR_UNSUPPORTED);
-    const size_t new_width=rotation==180?w:h;
-    const size_t new_height=rotation==180?h:w;
-    QP_SOURCE_STAGE_ARM(5u);
-    std::vector<unsigned char> turned(image.pixels.size());
-    if(!image.alpha.empty())QP_SOURCE_STAGE_ARM(16u);
-    std::vector<unsigned char> turned_alpha(image.alpha.size());
-    for(size_t y=0u;y<h;++y)
-        for(size_t x=0u;x<w;++x) {
-            size_t dx=0u,dy=0u;
-            if(rotation==90) {dx=h-1u-y;dy=x;}
-            else if(rotation==180) {dx=w-1u-x;dy=h-1u-y;}
-            else if(rotation==270) {dx=y;dy=w-1u-x;}
-            else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
-            std::memcpy(
-                turned.data()+(dy*new_width+dx)*pixel_bytes,
-                image.pixels.data()+(y*w+x)*pixel_bytes,pixel_bytes);
-            if(!image.alpha.empty())turned_alpha[dy*new_width+dx]=image.alpha[y*w+x];
-        }
-    image.pixels.swap(turned);
-    image.alpha.swap(turned_alpha);
-    image.width=static_cast<uint32_t>(new_width);
-    image.height=static_cast<uint32_t>(new_height);
+    const auto turn_plane=[&](std::vector<unsigned char>& data,size_t width,size_t height,
+                              size_t stride,unsigned phase) {
+        QP_SOURCE_STAGE_ARM(phase);
+        (void)phase;
+        std::vector<unsigned char> turned(data.size());
+        const size_t row=rotation==180?width:height;
+        for(size_t y=0u;y<height;++y)
+            for(size_t x=0u;x<width;++x) {
+                const size_t offset=rotation==90?x*row+height-1u-y:
+                    rotation==180?(height-1u-y)*row+width-1u-x:(width-1u-x)*row+y;
+                std::memcpy(turned.data()+offset*stride,data.data()+(y*width+x)*stride,stride);
+            }
+        data.swap(turned);
+    };
+    turn_plane(image.pixels,w,h,pixel_bytes,5u);
+    if(!image.alpha.bytes.empty()) {
+        const bool independent=image.alpha.width!=0u;
+        turn_plane(image.alpha.bytes,independent?image.alpha.width:w,independent?image.alpha.height:h,1u,16u);
+        if(rotation!=180 && independent)std::swap(image.alpha.width,image.alpha.height);
+    }
+    if(rotation!=180)std::swap(image.width,image.height);
 }
 
 /* Consume complete q/Q, CTM and operator admission first; only then
@@ -1792,12 +1793,15 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 image.data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.pixels.size()));
                 admit(image.data!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(image.data,staged.pixels.data(),staged.pixels.size());
-                if(!staged.alpha.empty()) {
-                    image.alpha_data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.alpha.size()));
+                if(!staged.alpha.bytes.empty()) {
+                    image.alpha_data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.alpha.bytes.size()));
                     admit(image.alpha_data!=nullptr,QUANTAPDF_ERROR_NOMEM);
-                    std::memcpy(image.alpha_data,staged.alpha.data(),staged.alpha.size());
-                    image.alpha_size=staged.alpha.size();
+                    std::memcpy(image.alpha_data,staged.alpha.bytes.data(),staged.alpha.bytes.size());
+                    image.alpha_size=staged.alpha.bytes.size();
                     image.has_alpha=1;
+                    image.mask_width=staged.alpha.width;
+                    image.mask_height=staged.alpha.height;
+                    image.mask_interpolate=staged.alpha.interpolate;
                 }
                 image.width=staged.width;image.height=staged.height;
                 image.size=staged.pixels.size();image.components=staged.components;

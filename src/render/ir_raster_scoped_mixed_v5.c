@@ -781,7 +781,7 @@ static quantapdf_status v5_prepare_impl(
         const quantapdf_composer_image_state *source=
             &ir->resources.images[i];
         size_t count,bytes_needed;
-        if(source->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW ||
+        if(source->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW || source->mask_width!=0u ||
            source->data==NULL || source->width==0u || source->height==0u ||
            (source->components!=1 && source->components!=3) ||
            (source->has_alpha!=0 && source->has_alpha!=1) ||

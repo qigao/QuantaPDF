@@ -31,6 +31,13 @@ struct indexed_palette {
     const char *decode = nullptr;
 };
 
+struct bitmap_mask {
+    unsigned width, height;
+    std::string bits;
+    const char *entries = "";
+    bool flate = false;
+};
+
 inline specimen grid(unsigned bits, unsigned channels, storage encoding)
 {
     specimen image;
@@ -96,7 +103,7 @@ inline std::string pack_rows(const specimen& image)
 
 inline std::string create(const specimen& image, fault invalid = fault::none,
     const char *media = "[0 0 3 2]", const char *content = "q 3 0 0 2 0 0 cm /I Do Q",
-    const indexed_palette *indexed = nullptr)
+    const indexed_palette *indexed = nullptr, const bitmap_mask *explicit_mask = nullptr)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -138,6 +145,20 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
     dict.replaceKey("/ColorSpace", O::newName(space));
     if (image.interpolate) dict.replaceKey("/Interpolate", O::newBool(true));
     if (image.mask != nullptr) dict.replaceKey("/Mask", O::parse(image.mask));
+    if (explicit_mask != nullptr) {
+        auto mask = pdf.newStream();
+        mask.replaceStreamData(explicit_mask->flate ? native_content_fixture::flate(explicit_mask->bits) :
+            explicit_mask->bits, explicit_mask->flate ? O::newName("/FlateDecode") : O::newNull(), O::newNull());
+        mask.setFilterOnWrite(false);
+        auto dictionary = mask.getDict();
+        dictionary.replaceKey("/Subtype", O::newName("/Image"));
+        dictionary.replaceKey("/ImageMask", O::newBool(true));
+        dictionary.replaceKey("/Width", O::newInteger(explicit_mask->width));
+        dictionary.replaceKey("/Height", O::newInteger(explicit_mask->height));
+        auto extra = O::parse(std::string("<< ") + explicit_mask->entries + " >>");
+        for (const auto& key : extra.getKeys()) dictionary.replaceKey(key, extra.getKey(key));
+        dict.replaceKey("/Mask", mask);
+    }
     if (indexed != nullptr) {
         O lookup = O::newString(indexed->bytes);
         if (indexed->stream) {

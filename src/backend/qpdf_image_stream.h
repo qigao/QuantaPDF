@@ -43,15 +43,23 @@ image_colors qpdf_read_image_colors(QPDFObjectHandle image, QPDFObjectHandle res
 std::vector<unsigned> qpdf_read_color_key(QPDFObjectHandle mask, const image_samples& samples);
 bool image_sample_is_masked(const image_samples& samples, const std::vector<unsigned>& key, size_t x, size_t y);
 
+struct image_alpha_plane {
+    std::vector<unsigned char> bytes;
+    uint32_t width = 0, height = 0;
+    bool interpolate = false;
+};
+
+image_alpha_plane qpdf_read_explicit_mask(QPDFObjectHandle mask, size_t pixel_limit, size_t color_bytes);
+
 struct device_image_samples {
     std::vector<unsigned char> pixels;
-    std::vector<unsigned char> alpha;
+    image_alpha_plane alpha;
     bool wide;
     int components;
 };
 
 // Device samples are tightly packed, with a big-endian pair for each wide sample.
-device_image_samples qpdf_normalize_image_colors(image_colors&& colors, QPDFObjectHandle mask);
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors, QPDFObjectHandle mask, size_t mask_pixel_limit);
 
 } // namespace quantapdf::detail
 

@@ -131,12 +131,11 @@ static inline int qp_prepared_resource_closure(
         return 0;
     for(size_t i=0u;i<r->image_count;++i) {
         const quantapdf_composer_image_state *image=&r->images[i];
-        size_t pixels,bytes;
+        size_t pixels,bytes,mask_pixels;
         if(image->width==0u || image->height==0u || image->data==NULL ||
            (image->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW &&
             image->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) ||
            (image->components!=1 && image->components!=3) ||
-           (image->has_alpha!=0 && image->has_alpha!=1) ||
            (size_t)image->width>SIZE_MAX/(size_t)image->height)
             return 0;
         pixels=(size_t)image->width*(size_t)image->height;
@@ -145,10 +144,9 @@ static inline int qp_prepared_resource_closure(
         if(pixels>SIZE_MAX/pixel_bytes)return 0;
         bytes=pixels*pixel_bytes;
         if(image->size!=bytes ||
-           (image->has_alpha ?
-             (image->alpha_data==NULL || image->alpha_size!=pixels) :
-             (image->alpha_data!=NULL || image->alpha_size!=0u)) ||
+           !quantapdf_image_alpha_layout(image,pixels,&mask_pixels) ||
            !qp_prepared_charge(&u->image_pixels,pixels,limits->max_source_pixels) ||
+           !qp_prepared_charge(&u->image_pixels,mask_pixels,limits->max_source_pixels) ||
            !qp_prepared_bytes(&u->retained_bytes,bytes,1u) ||
            !qp_prepared_bytes(&u->retained_bytes,image->alpha_size,1u))
             return 0;

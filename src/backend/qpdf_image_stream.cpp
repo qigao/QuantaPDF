@@ -237,7 +237,8 @@ std::array<double, 3u> image_samples::cmyk_rgb(size_t x, size_t y) const
 
 namespace {
 
-image_samples read_image_samples(Obj image, unsigned channels, bool indexed, size_t pixel_limit)
+image_samples read_image_samples(Obj image, unsigned channels, bool indexed, size_t pixel_limit,
+    bool stencil = false)
 {
     Obj dict = image.getDict();
     image_samples result;
@@ -245,8 +246,9 @@ image_samples read_image_samples(Obj image, unsigned channels, bool indexed, siz
     result.height = image_dimension(dict.getKey("/Height"), pixel_limit / result.width);
     result.channels = channels;
     Obj bits = dict.getKey("/BitsPerComponent");
-    require(bits.isInteger());
-    const auto bpc = bits.getIntValue();
+    require(bits.isInteger() || (stencil && bits.isNull()));
+    const auto bpc = bits.isNull() ? 1 : bits.getIntValue();
+    require(!stencil || bpc == 1);
     require(bpc == 1 || bpc == 2 || bpc == 4 || bpc == 8 || bpc == 16,
             QUANTAPDF_ERROR_UNSUPPORTED);
     result.bits = static_cast<unsigned>(bpc);
@@ -270,6 +272,9 @@ image_samples read_image_samples(Obj image, unsigned channels, bool indexed, siz
         }
     }
 
+    if (stencil)
+        require((result.decode[0] == 0.0 && result.decode[1] == 1.0) ||
+                (result.decode[0] == 1.0 && result.decode[1] == 0.0));
     Obj filter = dict.getKey("/Filter");
     if (has_dct_filter(filter)) {
         require(result.bits == 8u && !indexed);
@@ -420,9 +425,40 @@ bool image_sample_is_masked(const image_samples& samples, const std::vector<unsi
     return true;
 }
 
+image_alpha_plane qpdf_read_explicit_mask(Obj mask, size_t pixel_limit, size_t color_bytes)
+{
+    Obj dict = mask.getDict();
+    Obj type = dict.getKey("/Type");
+    require((type.isNull() || type.isNameAndEquals("/XObject")) &&
+        dict.getKey("/Subtype").isNameAndEquals("/Image") &&
+        dict.getKey("/ImageMask").isBool() && dict.getKey("/ImageMask").getBoolValue() &&
+        dict.getKey("/ColorSpace").isNull() && dict.getKey("/Mask").isNull() &&
+        dict.getKey("/SMask").isNull());
+    require(dict.getKey("/OC").isNull() && dict.getKey("/SMaskInData").isNull(),
+        QUANTAPDF_ERROR_UNSUPPORTED);
+    Obj interpolate = dict.getKey("/Interpolate");
+    require(interpolate.isNull() || interpolate.isBool());
+
+    require(color_bytes <= image_work_limit, QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t available_bytes = image_work_limit - color_bytes;
+    const auto samples = read_image_samples(mask, 1u, false, std::min(pixel_limit, available_bytes), true);
+    const size_t count = static_cast<size_t>(samples.width) * samples.height;
+    require(samples.bytes.size() <= available_bytes - count, QUANTAPDF_ERROR_UNSUPPORTED);
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+    quantapdf_source_stage_oom_arm(15u);
+#endif
+    image_alpha_plane alpha{{}, samples.width, samples.height, interpolate.isBool() && interpolate.getBoolValue()};
+    alpha.bytes.resize(count);
+    const unsigned painted_bit = samples.decode[0] == 0.0 ? 0u : 1u;
+    for (size_t y = 0u; y < samples.height; ++y)
+        for (size_t x = 0u; x < samples.width; ++x)
+            alpha.bytes[y * samples.width + x] = samples.raw(x, y, 0u) == painted_bit ? 255u : 0u;
+    return alpha;
+}
+
 namespace {
 
-device_image_samples normalize_device_samples(image_samples&& samples, std::vector<unsigned char> alpha)
+device_image_samples normalize_device_samples(image_samples&& samples, image_alpha_plane alpha)
 {
     const bool cmyk = samples.channels == 4u;
     const int components = cmyk ? 3 : static_cast<int>(samples.channels);
@@ -446,7 +482,7 @@ device_image_samples normalize_device_samples(image_samples&& samples, std::vect
     std::vector<unsigned char> expanded;
     auto *destination = samples.bytes.data();
     if (separate_buffer) {
-        require(output_size <= image_work_limit - samples.bytes.size() - alpha.size(), QUANTAPDF_ERROR_UNSUPPORTED);
+        require(output_size <= image_work_limit - samples.bytes.size() - alpha.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
         quantapdf_source_stage_oom_arm(14u);
 #endif
@@ -474,26 +510,27 @@ device_image_samples normalize_device_samples(image_samples&& samples, std::vect
 
 } // namespace
 
-device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj mask)
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj mask, size_t mask_pixel_limit)
 {
     const auto& samples = colors.samples;
-    const auto key = qpdf_read_color_key(mask, samples);
-    std::vector<unsigned char> alpha;
-    if (!key.empty()) {
+    image_alpha_plane alpha;
+    if (mask.isStream()) {
+        alpha = qpdf_read_explicit_mask(mask, mask_pixel_limit, samples.bytes.size() + colors.palette.size());
+    } else if (const auto key = qpdf_read_color_key(mask, samples); !key.empty()) {
         const size_t count = static_cast<size_t>(samples.width) * samples.height;
         require(count <= image_work_limit - samples.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
         quantapdf_source_stage_oom_arm(15u);
 #endif
-        alpha.resize(count);
+        alpha.bytes.resize(count);
         for (size_t y = 0u; y < samples.height; ++y)
             for (size_t x = 0u; x < samples.width; ++x)
-                alpha[y * samples.width + x] = image_sample_is_masked(samples, key, x, y) ? 0u : 255u;
+                alpha.bytes[y * samples.width + x] = image_sample_is_masked(samples, key, x, y) ? 0u : 255u;
     }
     if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples), std::move(alpha));
 
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height * colors.palette_channels;
-    require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size() - alpha.size(),
+    require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size() - alpha.bytes.size(),
         QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
     quantapdf_source_stage_oom_arm(14u);
