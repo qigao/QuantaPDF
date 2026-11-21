@@ -11,12 +11,12 @@ static int native_image_depth_cases(const std::string& filename)
     size_t rendered = 0u, extracted = 0u, denied = 0u;
 
     const auto matches = [](quantapdf_bitmap *bitmap, unsigned width, unsigned height,
-                             const std::vector<unsigned char>& expected) {
+                             const std::vector<unsigned char>& expected, int components = 3) {
         int w = 0, h = 0, stride = 0, channels = 0;
         const unsigned char *pixels = nullptr;
         size_t bytes = 0u;
         return quantapdf_bitmap_dimensions(bitmap, &w, &h, &stride, &channels) == QUANTAPDF_OK &&
-            w == int(width) && h == int(height) && channels == 3 && stride == 3 * w &&
+            w == int(width) && h == int(height) && channels == components && stride == components * w &&
             quantapdf_bitmap_data(bitmap, &pixels, &bytes) == QUANTAPDF_OK &&
             bytes == expected.size() && std::memcmp(pixels, expected.data(), bytes) == 0;
     };
@@ -25,7 +25,8 @@ static int native_image_depth_cases(const std::string& filename)
                               const std::vector<unsigned char>& reference,
                               unsigned page_width, unsigned page_height,
                               quantapdf_status wanted = QUANTAPDF_OK,
-                              const std::vector<unsigned char>* image_reference = nullptr, bool indexed = false) -> int {
+                              const std::vector<unsigned char>* image_reference = nullptr, bool indexed = false,
+                              bool has_alpha = false) -> int {
         CHECK(write_pdf(filename, original));
         quantapdf_document *raw_doc = nullptr;
         OK(quantapdf_open(filename.c_str(), nullptr, &raw_doc));
@@ -68,12 +69,12 @@ static int native_image_depth_cases(const std::string& filename)
         OK(quantapdf_image_get_info(images.get(), 0u, &info));
         CHECK(info.pixel_width == int(image.width) && info.pixel_height == int(image.height) &&
             info.components == (indexed ? 3 : int(image.channels)) &&
-            info.bits_per_component == int(image.bits) && !info.has_alpha);
+            info.bits_per_component == int(image.bits) && bool(info.has_alpha) == has_alpha);
         OK(quantapdf_image_render(images.get(), 0u, &raw_bitmap));
         bitmap.reset(raw_bitmap);
         images.reset();
         CHECK(matches(bitmap.get(), image.width, image.height,
-            image_reference ? *image_reference : rgb(image, false)));
+            image_reference ? *image_reference : rgb(image, false), has_alpha ? 4 : 3));
         ++extracted;
         return EXIT_SUCCESS;
     };
@@ -222,7 +223,49 @@ static int native_image_depth_cases(const std::string& filename)
     CHECK(execute(bad_jpeg, create(bad_jpeg, fault::none, jpeg_bounds, jpeg_paint),
         {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
 
-    CHECK(rendered == 77u && extracted == 77u && denied == 10u);
+    const std::vector<unsigned char> transparent_then_blue{0, 0, 0, 0, 0, 0, 255, 255};
+    const std::array<unsigned char, 9u> masked_row{0, 255, 0, 0, 128, 128, 0, 0, 255};
+    std::vector<unsigned char> masked_page(60u, 0u);
+    for (size_t i = 1; i < masked_page.size(); i += 3u) masked_page[i] = 255u;
+    for (size_t y : {1u, 2u})
+        std::copy(masked_row.begin(), masked_row.end(), masked_page.begin() + (y * 5u + 1u) * 3u);
+    for (unsigned bits : {8u, 16u}) {
+        specimen masked;
+        masked.width = 2u;
+        masked.height = 1u;
+        masked.channels = 3u;
+        masked.bits = bits;
+        const unsigned maximum = (1u << bits) - 1u;
+        masked.samples = {maximum, 0u, 0u, 0u, 0u, maximum};
+        masked.encoding = storage::flate;
+        masked.interpolate = true;
+        masked.mask = bits == 8u ? "[255 255 0 0 0 0]" : "[65535 65535 0 0 0 0]";
+        CHECK(execute(masked, create(masked, fault::none, "[0 0 5 4]",
+            "0 1 0 rg 0 0 5 4 re f q 1 1 3 2 re W n 3 0 0 2 1 1 cm /I Do Q"),
+            masked_page, 5u, 4u, QUANTAPDF_OK, &transparent_then_blue, false, true) == EXIT_SUCCESS);
+    }
+
+    specimen masked_indices = bilinear;
+    masked_indices.rotation = 90;
+    masked_indices.interpolate = false;
+    masked_indices.mask = "[0 0]";
+    auto inverted_palette = rgb_palette;
+    inverted_palette.decode = "[2 0]";
+    masked_indices.samples = {0u, 3u};
+    const std::vector<unsigned char> masked_index_page{255, 255, 255, 255, 0, 0};
+    const std::vector<unsigned char> masked_index_texels{0, 0, 0, 0, 255, 0, 0, 255};
+    CHECK(execute(masked_indices, create(masked_indices, fault::none, "[0 0 2 1]",
+        "q 2 0 0 1 0 0 cm /I Do Q", &inverted_palette),
+        masked_index_page, 1u, 2u, QUANTAPDF_OK, &masked_index_texels, true, true) == EXIT_SUCCESS);
+
+    for (const char *mask : {"[0]", "[0 4]", "[2 1]"}) {
+        masked_indices.mask = mask;
+        CHECK(execute(masked_indices, create(masked_indices, fault::none, "[0 0 2 1]",
+            "q 2 0 0 1 0 0 cm /I Do Q", &inverted_palette), {}, 0u, 0u,
+            QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    }
+
+    CHECK(rendered == 80u && extracted == 80u && denied == 13u);
     std::printf("Image depth: %zu full-page RGB matches, %zu extracted RGB matches, %zu atomic errors\n",
         rendered, extracted, denied);
     return EXIT_SUCCESS;

@@ -20,6 +20,7 @@ struct specimen {
     int rotation = 0;
     std::string jpeg;
     int color_transform = -1;
+    const char *mask = nullptr;
 };
 
 struct indexed_palette {
@@ -136,6 +137,7 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
         image.channels == 3u ? "/DeviceRGB" : "/DeviceGray";
     dict.replaceKey("/ColorSpace", O::newName(space));
     if (image.interpolate) dict.replaceKey("/Interpolate", O::newBool(true));
+    if (image.mask != nullptr) dict.replaceKey("/Mask", O::parse(image.mask));
     if (indexed != nullptr) {
         O lookup = O::newString(indexed->bytes);
         if (indexed->stream) {

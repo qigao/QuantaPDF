@@ -394,9 +394,35 @@ image_colors qpdf_read_image_colors(Obj image, Obj resources,
     return result;
 }
 
+std::vector<unsigned> qpdf_read_color_key(Obj mask, const image_samples& samples)
+{
+    if (mask.isNull()) return {};
+    require(mask.isArray(), QUANTAPDF_ERROR_UNSUPPORTED);
+    require(mask.getArrayNItems() == static_cast<int>(samples.channels * 2u));
+    const unsigned maximum = (1u << samples.bits) - 1u;
+    std::vector<unsigned> key;
+    for (unsigned i = 0u; i < samples.channels * 2u; ++i) {
+        Obj value = mask.getArrayItem(static_cast<int>(i));
+        require(value.isInteger() && value.getIntValue() >= 0 && value.getIntValue() <= maximum);
+        key.push_back(static_cast<unsigned>(value.getIntValue()));
+    }
+    for (unsigned c = 0u; c < samples.channels; ++c)
+        require(key[2u * c] <= key[2u * c + 1u]);
+    return key;
+}
+
+bool image_sample_is_masked(const image_samples& samples, const std::vector<unsigned>& key, size_t x, size_t y)
+{
+    for (unsigned c = 0u; c < samples.channels; ++c) {
+        const unsigned sample = samples.raw(x, y, c);
+        if (sample < key[2u * c] || sample > key[2u * c + 1u]) return false;
+    }
+    return true;
+}
+
 namespace {
 
-device_image_samples normalize_device_samples(image_samples&& samples)
+device_image_samples normalize_device_samples(image_samples&& samples, std::vector<unsigned char> alpha)
 {
     const bool cmyk = samples.channels == 4u;
     const int components = cmyk ? 3 : static_cast<int>(samples.channels);
@@ -411,7 +437,7 @@ device_image_samples normalize_device_samples(image_samples&& samples)
     }
     const unsigned output_bits = wide ? 16u : 8u;
     if (!cmyk && identity && samples.bits == output_bits)
-        return {std::move(samples.bytes), wide, components};
+        return {std::move(samples.bytes), std::move(alpha), wide, components};
 
     const size_t bytes_per_sample = output_bits / 8u;
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height *
@@ -420,7 +446,7 @@ device_image_samples normalize_device_samples(image_samples&& samples)
     std::vector<unsigned char> expanded;
     auto *destination = samples.bytes.data();
     if (separate_buffer) {
-        require(output_size <= image_work_limit - samples.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
+        require(output_size <= image_work_limit - samples.bytes.size() - alpha.size(), QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
         quantapdf_source_stage_oom_arm(14u);
 #endif
@@ -443,18 +469,31 @@ device_image_samples normalize_device_samples(image_samples&& samples)
             }
         }
     }
-    return {separate_buffer ? std::move(expanded) : std::move(samples.bytes), wide, components};
+    return {separate_buffer ? std::move(expanded) : std::move(samples.bytes), std::move(alpha), wide, components};
 }
 
 } // namespace
 
-device_image_samples qpdf_normalize_image_colors(image_colors&& colors)
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj mask)
 {
-    if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples));
-
     const auto& samples = colors.samples;
+    const auto key = qpdf_read_color_key(mask, samples);
+    std::vector<unsigned char> alpha;
+    if (!key.empty()) {
+        const size_t count = static_cast<size_t>(samples.width) * samples.height;
+        require(count <= image_work_limit - samples.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+        quantapdf_source_stage_oom_arm(15u);
+#endif
+        alpha.resize(count);
+        for (size_t y = 0u; y < samples.height; ++y)
+            for (size_t x = 0u; x < samples.width; ++x)
+                alpha[y * samples.width + x] = image_sample_is_masked(samples, key, x, y) ? 0u : 255u;
+    }
+    if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples), std::move(alpha));
+
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height * colors.palette_channels;
-    require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size(),
+    require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size() - alpha.size(),
         QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
     quantapdf_source_stage_oom_arm(14u);
@@ -468,7 +507,7 @@ device_image_samples qpdf_normalize_image_colors(image_colors&& colors)
             destination = std::copy_n(color, colors.palette_channels, destination);
         }
     }
-    return {std::move(pixels), false, static_cast<int>(colors.palette_channels)};
+    return {std::move(pixels), std::move(alpha), false, static_cast<int>(colors.palette_channels)};
 }
 
 } // namespace quantapdf::detail

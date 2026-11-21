@@ -40,14 +40,18 @@ struct image_colors {
 image_colors qpdf_read_image_colors(QPDFObjectHandle image, QPDFObjectHandle resources,
     size_t pixel_limit, bool resolve_names);
 
+std::vector<unsigned> qpdf_read_color_key(QPDFObjectHandle mask, const image_samples& samples);
+bool image_sample_is_masked(const image_samples& samples, const std::vector<unsigned>& key, size_t x, size_t y);
+
 struct device_image_samples {
     std::vector<unsigned char> pixels;
+    std::vector<unsigned char> alpha;
     bool wide;
     int components;
 };
 
 // Device samples are tightly packed, with a big-endian pair for each wide sample.
-device_image_samples qpdf_normalize_image_colors(image_colors&& colors);
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors, QPDFObjectHandle mask);
 
 } // namespace quantapdf::detail
 

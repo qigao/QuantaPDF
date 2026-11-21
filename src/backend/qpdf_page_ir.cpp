@@ -157,6 +157,7 @@ matrix concat(const matrix& parent,const matrix& child)
 
 struct staged_image {
     std::vector<unsigned char> pixels;
+    std::vector<unsigned char> alpha;
     uint32_t width=0,height=0;
     int components=0;
     bool wide=false;
@@ -384,7 +385,6 @@ struct admission {
         admit(mask.isNull() || (mask.isBool() && !mask.getBoolValue()),
               QUANTAPDF_ERROR_UNSUPPORTED);
         admit(dict.getKey("/SMask").isNull() &&
-              dict.getKey("/Mask").isNull() &&
               dict.getKey("/Alternates").isNull() &&
               dict.getKey("/OPI").isNull() &&
               dict.getKey("/Matte").isNull() &&
@@ -463,8 +463,9 @@ struct admission {
 
         entry.width=samples.width;
         entry.height=samples.height;
-        auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors));
+        auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict.getKey("/Mask"));
         entry.pixels=std::move(decoded.pixels);
+        entry.alpha=std::move(decoded.alpha);
         entry.wide=decoded.wide;
         entry.components=decoded.components;
         entry.interpolate=interpolate;
@@ -1605,6 +1606,8 @@ void original_turn_image(staged_image& image,
     const size_t new_height=rotation==180?h:w;
     QP_SOURCE_STAGE_ARM(5u);
     std::vector<unsigned char> turned(image.pixels.size());
+    if(!image.alpha.empty())QP_SOURCE_STAGE_ARM(16u);
+    std::vector<unsigned char> turned_alpha(image.alpha.size());
     for(size_t y=0u;y<h;++y)
         for(size_t x=0u;x<w;++x) {
             size_t dx=0u,dy=0u;
@@ -1615,8 +1618,10 @@ void original_turn_image(staged_image& image,
             std::memcpy(
                 turned.data()+(dy*new_width+dx)*pixel_bytes,
                 image.pixels.data()+(y*w+x)*pixel_bytes,pixel_bytes);
+            if(!image.alpha.empty())turned_alpha[dy*new_width+dx]=image.alpha[y*w+x];
         }
     image.pixels.swap(turned);
+    image.alpha.swap(turned_alpha);
     image.width=static_cast<uint32_t>(new_width);
     image.height=static_cast<uint32_t>(new_height);
 }
@@ -1787,6 +1792,13 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                 image.data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.pixels.size()));
                 admit(image.data!=nullptr,QUANTAPDF_ERROR_NOMEM);
                 std::memcpy(image.data,staged.pixels.data(),staged.pixels.size());
+                if(!staged.alpha.empty()) {
+                    image.alpha_data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(staged.alpha.size()));
+                    admit(image.alpha_data!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                    std::memcpy(image.alpha_data,staged.alpha.data(),staged.alpha.size());
+                    image.alpha_size=staged.alpha.size();
+                    image.has_alpha=1;
+                }
                 image.width=staged.width;image.height=staged.height;
                 image.size=staged.pixels.size();image.components=staged.components;
                 image.format=staged.wide?QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16:

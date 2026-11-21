@@ -100,19 +100,7 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
                 matte.push_back(number(value.getArrayItem(static_cast<int>(c))));
         }
     }
-    std::vector<unsigned> color_key;
-    if (!mask.isNull()) {
-        require(mask.isArray(), QUANTAPDF_ERROR_UNSUPPORTED);
-        require(mask.getArrayNItems() == static_cast<int>(source.channels*2u));
-        for (unsigned i = 0; i < source.channels*2u; ++i) {
-            Obj value = mask.getArrayItem(static_cast<int>(i));
-            require(value.isInteger() && value.getIntValue() >= 0 &&
-                value.getIntValue() <= static_cast<long long>((1u<<source.bits)-1u));
-            color_key.push_back(static_cast<unsigned>(value.getIntValue()));
-        }
-        for (unsigned c = 0; c < source.channels; ++c)
-            require(color_key[c*2u] <= color_key[c*2u+1u]);
-    }
+    const auto color_key = quantapdf::detail::qpdf_read_color_key(mask, source);
     image_value result;
     result.pixels.resize(count * 4u);
     bool has_alpha = false;
@@ -122,14 +110,8 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
             unsigned a = soft_mask ? alpha.value(
                 static_cast<size_t>(static_cast<uint64_t>(x)*alpha.width/source.width),
                 static_cast<size_t>(static_cast<uint64_t>(y)*alpha.height/source.height), 0u, 255u) : 255u;
-            if (!color_key.empty()) {
-                bool transparent = true;
-                for (unsigned c = 0; c < source.channels; ++c) {
-                    unsigned sample = source.raw(x,y,c);
-                    transparent = transparent && sample >= color_key[c*2u] && sample <= color_key[c*2u+1u];
-                }
-                if (transparent) a = 0;
-            }
+            if (!color_key.empty() && quantapdf::detail::image_sample_is_masked(source, color_key, x, y))
+                a = 0;
             unsigned final_alpha = static_cast<unsigned>(a * opacity + 0.5);
             has_alpha = has_alpha || final_alpha != 255u;
             size_t offset = (y * source.width + x)*4u;

@@ -783,23 +783,23 @@ typedef struct qp_bilinear_axis {
     unsigned second_weight;
 } qp_bilinear_axis;
 
-static qp_bilinear_axis qp_bilinear_taps(double coordinate, size_t extent)
+static qp_bilinear_axis qp_bilinear_taps(double coordinate, size_t extent, unsigned one)
 {
     /* Texel centers lie at (i + 0.5) / extent. Extend the outer texels
      * through the image fringe, including a covered pixel with its center
      * outside the quad. Coverage itself comes from the quad and Clip. */
     const double offset = fma(coordinate, (double)extent, -0.5);
     const double position = fmin(fmax(offset, 0.0), (double)(extent - 1u));
-    /* Sixteen fractional bits per axis. Ties to even give complementary
+    /* Fixed-point weights per axis. Ties to even give complementary
      * weights when the texel axis is reflected. */
-    const double fixed = position * QP_BILINEAR_ONE;
+    const double fixed = position * one;
     const uint64_t base = (uint64_t)fixed;
     const double remainder = fixed - (double)base;
     const uint64_t texel = base +
         (remainder > 0.5 || (remainder == 0.5 && (base & 1u) != 0u));
-    const size_t first = (size_t)(texel / QP_BILINEAR_ONE);
+    const size_t first = (size_t)(texel / one);
     return (qp_bilinear_axis){first, first + (first + 1u < extent),
-        (unsigned)(texel % QP_BILINEAR_ONE)};
+        (unsigned)(texel % one)};
 }
 
 static unsigned qp_image_sample(const unsigned char *pixel, size_t channel, int wide)
@@ -823,13 +823,38 @@ static void qp_blend_image_sample(unsigned char *dst, const uint64_t color[3],
     dst[3] = (unsigned char)((alpha + QP_TOTAL_SAMPLES / 2u) / QP_TOTAL_SAMPLES);
 }
 
+/* Premultiplied filtered colors, followed by geometrical coverage and
+ * straight-alpha destination output. With 14 fractional bits per axis,
+ * even RAW16 * alpha * weight * 16-cover * 255 stays in uint64_t. */
+static void qp_blend_alpha_image_sample(unsigned char *dst, const uint64_t color[3],
+    uint64_t alpha, uint64_t total_weight, unsigned color_scale, unsigned covered)
+{
+    if (alpha == 0u) return;
+    const uint64_t src_alpha = alpha * covered;
+    const uint64_t coverage_scale = QP_TOTAL_SAMPLES * total_weight;
+    const uint64_t dst_weight = (coverage_scale * 255u - src_alpha) * dst[3];
+    const uint64_t output_alpha = src_alpha * 255u + dst_weight;
+    const uint64_t alpha_scale = coverage_scale * 255u;
+    dst[3] = (unsigned char)((output_alpha + alpha_scale / 2u) / alpha_scale);
+    if (dst[3] == 0u) {
+        dst[0] = dst[1] = dst[2] = 0u;
+        return;
+    }
+    const uint64_t denominator = output_alpha * color_scale;
+    for (size_t c = 0u; c < 3u; ++c) {
+        const uint64_t numerator = color[c] * covered * 255u + dst[c] * dst_weight * color_scale;
+        dst[c] = (unsigned char)((numerator + denominator / 2u) / denominator);
+    }
+}
+
 static void qp_blend_bilinear_image(unsigned char *dst,
     const quantapdf_composer_image_state *image, double u, double v, unsigned covered)
 {
-    const qp_bilinear_axis x = qp_bilinear_taps(u, image->width);
-    const qp_bilinear_axis y = qp_bilinear_taps(v, image->height);
-    const unsigned left = QP_BILINEAR_ONE - x.second_weight;
-    const unsigned top = QP_BILINEAR_ONE - y.second_weight;
+    const unsigned one = image->has_alpha ? (1u << 14u) : QP_BILINEAR_ONE;
+    const qp_bilinear_axis x = qp_bilinear_taps(u, image->width, one);
+    const qp_bilinear_axis y = qp_bilinear_taps(v, image->height, one);
+    const unsigned left = one - x.second_weight;
+    const unsigned top = one - y.second_weight;
     const size_t components = (size_t)image->components;
     const int wide = image->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16;
     const size_t pixel_bytes = components * (wide ? 2u : 1u);
@@ -839,6 +864,25 @@ static void qp_blend_bilinear_image(unsigned char *dst,
     const unsigned char *bottom_left = image->data + y.second * stride + x.first * pixel_bytes;
     const unsigned char *bottom_right = image->data + y.second * stride + x.second * pixel_bytes;
     uint64_t color[3];
+    if (image->has_alpha) {
+        const unsigned char *a = image->alpha_data;
+        const uint64_t weights[] = {
+            (uint64_t)left * top * a[y.first * image->width + x.first],
+            (uint64_t)x.second_weight * top * a[y.first * image->width + x.second],
+            (uint64_t)left * y.second_weight * a[y.second * image->width + x.first],
+            (uint64_t)x.second_weight * y.second_weight * a[y.second * image->width + x.second]
+        };
+        for (size_t c = 0u; c < components; ++c)
+            color[c] = weights[0] * qp_image_sample(top_left, c, wide) +
+                weights[1] * qp_image_sample(top_right, c, wide) +
+                weights[2] * qp_image_sample(bottom_left, c, wide) +
+                weights[3] * qp_image_sample(bottom_right, c, wide);
+        if (components == 1u)
+            color[1] = color[2] = color[0];
+        qp_blend_alpha_image_sample(dst, color, weights[0] + weights[1] + weights[2] + weights[3],
+            (uint64_t)one * one, wide ? QP_WIDE_SAMPLE_SCALE : 1u, covered);
+        return;
+    }
 
     for (size_t c = 0u; c < components; ++c) {
         const unsigned upper = left * qp_image_sample(top_left, c, wide) +
@@ -864,7 +908,14 @@ static void qp_blend_nearest_image(unsigned char *dst,
     const size_t offset = (y * image->width + x) * (size_t)image->components;
     const size_t green = image->components == 1 ? 0u : 1u;
     const size_t blue = image->components == 1 ? 0u : 2u;
-    if (image->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) {
+    if (image->has_alpha) {
+        const unsigned alpha = image->alpha_data[y * image->width + x];
+        const int wide = image->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16;
+        const unsigned char *src = image->data + (wide ? 2u : 1u) * offset;
+        const uint64_t color[3] = {qp_image_sample(src, 0u, wide) * alpha,
+            qp_image_sample(src, green, wide) * alpha, qp_image_sample(src, blue, wide) * alpha};
+        qp_blend_alpha_image_sample(dst, color, alpha, 1u, wide ? QP_WIDE_SAMPLE_SCALE : 1u, covered);
+    } else if (image->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) {
         const unsigned char *src = image->data + 2u * offset;
         const uint64_t color[3] = {qp_image_sample(src, 0u, 1), qp_image_sample(src, green, 1),
             qp_image_sample(src, blue, 1)};
@@ -946,13 +997,15 @@ static int qp_scene_image_pixels(const quantapdf_composer_image_state *image,siz
         image->format!=QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) || image->data==NULL ||
        image->width==0u || image->height==0u ||
        (image->components!=1 && image->components!=3) ||
-       image->has_alpha!=0 || image->alpha_data!=NULL || image->alpha_size!=0u ||
+       (image->has_alpha!=0 && image->has_alpha!=1) ||
        (size_t)image->width>SIZE_MAX/(size_t)image->height)return 0;
     pixels=(size_t)image->width*(size_t)image->height;
     const size_t pixel_bytes=(size_t)image->components*
         (image->format==QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16?2u:1u);
     if(pixels>SIZE_MAX/pixel_bytes ||
-       image->size!=pixels*pixel_bytes || pixels>SIZE_MAX-*total)return 0;
+       image->size!=pixels*pixel_bytes || pixels>SIZE_MAX-*total ||
+       (image->has_alpha ? (image->alpha_data==NULL || image->alpha_size!=pixels) :
+                          (image->alpha_data!=NULL || image->alpha_size!=0u)))return 0;
     *total+=pixels;return 1;
 }
 

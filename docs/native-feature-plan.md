@@ -802,6 +802,16 @@
 - 扩展已有图像测试，比较 CMYK／YCCK JPEG、五种 RAW／Flate 位深、Indexed
   及 16 位插值的整页和提取 RGB。Source/OOM 核对颜色展开、旋转和 IR 发布失败。
 
+### A4 图像颜色键遮罩
+
+- Image XObject 的颜色键 `/Mask` 数组由 Source 与独立提取共用解析器。
+  每个原始样本在 Decode 和调色板查找前与闭区间比较，所有分量同时命中时透明。
+  参见 [PDF 32000-1 §8.9.6.4](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)。
+- Source 在现有图像资源中发布 alpha 平面。颜色与 alpha 一起旋转，沿用同一个
+  Scene 中的仿射和裁剪。双线性采样先按 alpha 加权，然后将可见颜色与背景合成。
+- 验收覆盖 8／16 位 RGB、反向 Decode 的 Indexed 图像、Clip、旋转、三类非法范围，
+  以及 alpha 展开、旋转、IR 发布和保留字节预算。显式图像遮罩、stencil 和 SMask 待实现。
+
 ## 单一执行模型
 
 ```mermaid
@@ -838,7 +848,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
-| A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射和插值，具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、image mask/SMask | P1 |
+| A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射、插值和颜色键遮罩，具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、显式图像遮罩、stencil 和 SMask | P1 |
 | A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
