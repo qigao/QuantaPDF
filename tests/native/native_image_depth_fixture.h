@@ -32,11 +32,12 @@ struct indexed_palette {
     const char *decode = nullptr;
 };
 
-struct bitmap_mask {
+struct image_mask {
     unsigned width, height;
     std::string bits;
     const char *entries = "";
     bool flate = false;
+    unsigned soft_bits = 0;
 };
 
 inline specimen grid(unsigned bits, unsigned channels, storage encoding)
@@ -104,7 +105,7 @@ inline std::string pack_rows(const specimen& image)
 
 inline std::string create(const specimen& image, fault invalid = fault::none,
     const char *media = "[0 0 3 2]", const char *content = "q 3 0 0 2 0 0 cm /I Do Q",
-    const indexed_palette *indexed = nullptr, const bitmap_mask *explicit_mask = nullptr)
+    const indexed_palette *indexed = nullptr, const image_mask *mask_image = nullptr)
 {
     QPDF pdf;
     pdf.emptyPDF();
@@ -146,19 +147,24 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
     dict.replaceKey("/ColorSpace", O::newName(space));
     if (image.interpolate) dict.replaceKey("/Interpolate", O::newBool(true));
     if (image.mask != nullptr) dict.replaceKey("/Mask", O::parse(image.mask));
-    if (explicit_mask != nullptr) {
+    if (mask_image != nullptr) {
         auto mask = pdf.newStream();
-        mask.replaceStreamData(explicit_mask->flate ? native_content_fixture::flate(explicit_mask->bits) :
-            explicit_mask->bits, explicit_mask->flate ? O::newName("/FlateDecode") : O::newNull(), O::newNull());
+        mask.replaceStreamData(mask_image->flate ? native_content_fixture::flate(mask_image->bits) :
+            mask_image->bits, mask_image->flate ? O::newName("/FlateDecode") : O::newNull(), O::newNull());
         mask.setFilterOnWrite(false);
         auto dictionary = mask.getDict();
         dictionary.replaceKey("/Subtype", O::newName("/Image"));
-        dictionary.replaceKey("/ImageMask", O::newBool(true));
-        dictionary.replaceKey("/Width", O::newInteger(explicit_mask->width));
-        dictionary.replaceKey("/Height", O::newInteger(explicit_mask->height));
-        auto extra = O::parse(std::string("<< ") + explicit_mask->entries + " >>");
+        if (mask_image->soft_bits != 0u) {
+            dictionary.replaceKey("/ColorSpace", O::newName("/DeviceGray"));
+            dictionary.replaceKey("/BitsPerComponent", O::newInteger(mask_image->soft_bits));
+        } else {
+            dictionary.replaceKey("/ImageMask", O::newBool(true));
+        }
+        dictionary.replaceKey("/Width", O::newInteger(mask_image->width));
+        dictionary.replaceKey("/Height", O::newInteger(mask_image->height));
+        auto extra = O::parse(std::string("<< ") + mask_image->entries + " >>");
         for (const auto& key : extra.getKeys()) dictionary.replaceKey(key, extra.getKey(key));
-        dict.replaceKey("/Mask", mask);
+        dict.replaceKey(mask_image->soft_bits != 0u ? "/SMask" : "/Mask", mask);
     }
     if (indexed != nullptr) {
         O lookup = O::newString(indexed->bytes);
@@ -181,6 +187,7 @@ inline std::string create(const specimen& image, fault invalid = fault::none,
 
     if (image.stencil_entries != nullptr) {
         dict.removeKey("/ColorSpace");
+        dict.removeKey("/BitsPerComponent");
         dict.replaceKey("/ImageMask", O::newBool(true));
         auto extra = O::parse(std::string("<< ") + image.stencil_entries + " >>");
         for (const auto& key : extra.getKeys()) dict.replaceKey(key, extra.getKey(key));

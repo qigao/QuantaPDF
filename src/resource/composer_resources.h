@@ -22,9 +22,10 @@ typedef struct quantapdf_composer_image_state {
     quantapdf_composer_image_format_internal format;
     int jpeg_color_transform; /* PDF DCT ColorTransform for three-component JPEGs. */
     int interpolate;
-    uint32_t mask_width; /* Independent explicit-mask grid, zero for associated alpha. */
+    uint32_t mask_width; /* Independent image mask grid, zero for associated alpha. */
     uint32_t mask_height;
     int mask_interpolate;
+    unsigned mask_bits; /* Stencil expanded to bytes, RAW8, or big-endian RAW16. */
 } quantapdf_composer_image_state;
 
 static inline int quantapdf_image_alpha_layout(const quantapdf_composer_image_state *image,
@@ -33,12 +34,15 @@ static inline int quantapdf_image_alpha_layout(const quantapdf_composer_image_st
     *mask_pixels = 0u;
     if (image->mask_width != 0u) {
         if (image->mask_height == 0u || image->mask_width > SIZE_MAX / image->mask_height ||
-            (image->mask_interpolate != 0 && image->mask_interpolate != 1))
+            (image->mask_interpolate != 0 && image->mask_interpolate != 1) ||
+            (image->mask_bits != 1u && image->mask_bits != 8u && image->mask_bits != 16u))
             return 0;
         *mask_pixels = (size_t)image->mask_width * image->mask_height;
-        return image->has_alpha == 1 && image->alpha_data != NULL && image->alpha_size == *mask_pixels;
+        const size_t stride = image->mask_bits == 16u ? 2u : 1u;
+        return *mask_pixels <= SIZE_MAX / stride && image->has_alpha == 1 &&
+            image->alpha_data != NULL && image->alpha_size == *mask_pixels * stride;
     }
-    if (image->mask_height != 0u || image->mask_interpolate != 0)
+    if (image->mask_height != 0u || image->mask_interpolate != 0 || image->mask_bits != 0u)
         return 0;
     return image->has_alpha == 1 ? image->alpha_data != NULL && image->alpha_size == image_pixels :
         image->has_alpha == 0 && image->alpha_data == NULL && image->alpha_size == 0u;

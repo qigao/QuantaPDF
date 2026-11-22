@@ -178,7 +178,7 @@ quantapdf_status quantapdf_validate_ir(
             v->alpha_size <= SIZE_MAX - v->size &&
             (v->has_alpha ? v->alpha_data != NULL && v->alpha_size != 0 : v->alpha_size == 0),
             QUANTAPDF_VALIDATION_IMAGE, i);
-        if (v->mask_width != 0u || v->mask_height != 0u || v->mask_interpolate != 0) {
+        if (v->mask_width != 0u || v->mask_height != 0u || v->mask_interpolate != 0 || v->mask_bits != 0u) {
             size_t mask_pixels;
             VALUE((v->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW ||
                 v->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) &&

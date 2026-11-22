@@ -384,8 +384,7 @@ struct admission {
         Obj mask=dict.getKey("/ImageMask");
         admit(mask.isNull() || mask.isBool(),QUANTAPDF_ERROR_UNSUPPORTED);
         const bool stencil=mask.isBool() && mask.getBoolValue();
-        admit(dict.getKey("/SMask").isNull() &&
-              dict.getKey("/Alternates").isNull() &&
+        admit(dict.getKey("/Alternates").isNull() &&
               dict.getKey("/OPI").isNull() &&
               dict.getKey("/Matte").isNull() &&
               /* /OC may hide the image; /SMaskInData and /Intent can
@@ -475,9 +474,9 @@ struct admission {
             entry.width=colors.samples.width;
             entry.height=colors.samples.height;
             source_pixels+=static_cast<size_t>(entry.width)*entry.height;
-            auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict.getKey("/Mask"),
+            auto decoded=quantapdf::detail::qpdf_normalize_image_colors(std::move(colors),dict,
                 source_limit-source_pixels);
-            if(decoded.alpha.width!=0u)source_pixels+=decoded.alpha.bytes.size();
+            if(decoded.alpha.width!=0u)source_pixels+=static_cast<size_t>(decoded.alpha.width)*decoded.alpha.height;
             entry.pixels=std::move(decoded.pixels);
             entry.alpha=std::move(decoded.alpha);
             entry.wide=decoded.wide;
@@ -1636,7 +1635,8 @@ void original_turn_image(staged_image& image,
     turn_plane(image.pixels,w,h,pixel_bytes,5u);
     if(!image.alpha.bytes.empty()) {
         const bool independent=image.alpha.width!=0u;
-        turn_plane(image.alpha.bytes,independent?image.alpha.width:w,independent?image.alpha.height:h,1u,16u);
+        turn_plane(image.alpha.bytes,independent?image.alpha.width:w,independent?image.alpha.height:h,
+                   image.alpha.bits==16u?2u:1u,16u);
         if(rotation!=180 && independent)std::swap(image.alpha.width,image.alpha.height);
     }
     if(rotation!=180)std::swap(image.width,image.height);
@@ -1817,6 +1817,7 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
                     image.mask_width=staged.alpha.width;
                     image.mask_height=staged.alpha.height;
                     image.mask_interpolate=staged.alpha.interpolate;
+                    image.mask_bits=staged.alpha.bits;
                 }
                 image.width=staged.width;image.height=staged.height;
                 image.size=staged.pixels.size();image.components=staged.components;

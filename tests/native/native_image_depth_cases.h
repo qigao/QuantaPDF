@@ -270,7 +270,7 @@ static int native_image_depth_cases(const std::string& filename)
     placed.width = placed.height = 1u;
     placed.channels = 3u;
     placed.samples = {0u, 0u, 255u};
-    bitmap_mask explicit_mask{2u, 1u, std::string(1u, '\x7f')};
+    image_mask explicit_mask{2u, 1u, std::string(1u, '\x7f')};
     const std::vector<unsigned char> no_ink{0u, 0u, 0u, 0u};
     const std::vector<unsigned char> blue_blue_white_white{
         0u, 0u, 255u, 0u, 0u, 255u, 255u, 255u, 255u, 255u, 255u, 255u};
@@ -308,7 +308,56 @@ static int native_image_depth_cases(const std::string& filename)
             {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
     }
 
-    const auto render_stencil = [&](const std::string& original,
+    specimen soft_base;
+    soft_base.width = soft_base.height = 1u;
+    soft_base.channels = 3u;
+    soft_base.samples = {0u, 0u, 255u};
+    soft_base.mask = "[0 0 0 0 255 255]"; // The SMask takes precedence over this color key.
+    image_mask soft{3u, 1u, std::string("\x00\x80\xff", 3u), "", false, 8u};
+    const std::vector<unsigned char> green_partial_blue{0u,255u,0u, 0u,127u,128u, 0u,0u,255u};
+    CHECK(execute(soft_base, create(soft_base, fault::none, "[0 0 3 1]", paint, nullptr, &soft),
+        green_partial_blue, 3u, 1u, QUANTAPDF_OK, &half_blue, false, true) == EXIT_SUCCESS);
+
+    // A RAW16 mask of {0, 256} contributes 128/65535 at the midpoint.
+    // At that point an 8-bit mask would contribute 0.5/255 and round up to blue=1.
+    soft_base.width = 2u;
+    soft_base.bits = 16u;
+    soft_base.samples = {0u, 0u, 65535u, 0u, 0u, 65535u};
+    soft_base.interpolate = true;
+    soft_base.rotation = 90;
+    soft_base.mask = nullptr;
+    soft = {2u, 1u, std::string("\xff\xff\xfe\xff", 4u), "/Decode [1 0] /Interpolate true", true, 16u};
+    const std::vector<unsigned char> precision_page{0u,255u,0u, 0u,255u,0u, 0u,254u,1u};
+    const std::vector<unsigned char> precision_texels{0u,0u,0u,0u, 0u,0u,1u,1u};
+    CHECK(execute(soft_base, create(soft_base, fault::none, "[0 0 3 1]",
+        "0 1 0 rg 0 0 3 1 re f BT ET q 3 0 0 1 0 0 cm /I Do Q", nullptr, &soft),
+        precision_page, 1u, 3u, QUANTAPDF_OK, &precision_texels, false, true) == EXIT_SUCCESS);
+
+    // Exercise the wide color and mask compositor near its integer bounds.
+    soft.bits = std::string("\x00\x01\x00\x00", 4u);
+    const std::vector<unsigned char> blue_page{0u,0u,255u, 0u,0u,255u, 0u,0u,255u};
+    CHECK(execute(soft_base, create(soft_base, fault::none, "[0 0 3 1]", paint, nullptr, &soft),
+        blue_page, 1u, 3u) == EXIT_SUCCESS);
+
+    // Four-bit PDF samples use the entire alpha range, with a non-default Decode.
+    soft_base = {};
+    soft_base.width = 2u;
+    soft_base.height = 1u;
+    soft_base.samples = {255u, 255u};
+    soft = {2u, 1u, std::string(1u, '\x05'), "/Decode [0.25 1]", false, 4u};
+    const std::vector<unsigned char> alpha_page{64u,255u,64u, 128u,255u,128u, 128u,255u,128u};
+    const std::vector<unsigned char> alpha_texels{64u,64u,64u,64u, 128u,128u,128u,128u};
+    CHECK(execute(soft_base, create(soft_base, fault::none, "[0 0 3 1]", paint, nullptr, &soft),
+        alpha_page, 3u, 1u, QUANTAPDF_OK, &alpha_texels, false, true) == EXIT_SUCCESS);
+
+    for (const char *entries : {"/ColorSpace /DeviceRGB", "/BitsPerComponent /None",
+                                "/ImageMask true", "/Mask [0 0]", "/SMask /None", "/Interpolate 1"}) {
+        soft.entries = entries;
+        CHECK(execute(soft_base, create(soft_base, fault::none, "[0 0 3 1]", paint, nullptr, &soft),
+            {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    }
+
+    const auto render_only = [&](const std::string& original,
         unsigned width, unsigned height, const std::vector<unsigned char>& reference,
         quantapdf_status wanted = QUANTAPDF_OK) -> int {
         CHECK(write_pdf(filename, original));
@@ -327,13 +376,17 @@ static int native_image_depth_cases(const std::string& filename)
         return EXIT_SUCCESS;
     };
 
+    soft.entries = "/Matte [1]";
+    CHECK(render_only(create(soft_base, fault::none, "[0 0 3 1]", paint, nullptr, &soft),
+        0u, 0u, {}, QUANTAPDF_ERROR_UNSUPPORTED) == EXIT_SUCCESS);
+
     specimen stencil;
     stencil.width = 2u;
     stencil.height = 1u;
     stencil.bits = 1u;
     stencil.samples = {0u, 1u};
-    stencil.stencil_entries = "/BitsPerComponent null";
-    CHECK(render_stencil(create(stencil, fault::none, "[0 0 2 1]", "q 2 0 0 1 0 0 cm /I Do Q"),
+    stencil.stencil_entries = "";
+    CHECK(render_only(create(stencil, fault::none, "[0 0 2 1]", "q 2 0 0 1 0 0 cm /I Do Q"),
         2u, 1u, {0u, 0u, 0u, 255u, 255u, 255u}) == EXIT_SUCCESS);
 
     // Reuse the XObject with a different fill in the same q frame as a clip
@@ -342,7 +395,7 @@ static int native_image_depth_cases(const std::string& filename)
         255u,0u,0u, 255u,0u,0u, 0u,255u,0u, 0u,255u,0u,
         64u,64u,64u, 0u,255u,0u, 0u,255u,0u, 0u,255u,0u,
         255u,0u,0u, 255u,0u,0u, 0u,255u,0u, 0u,255u,0u};
-    CHECK(render_stencil(create(stencil, fault::none, "[0 0 4 3]",
+    CHECK(render_only(create(stencil, fault::none, "[0 0 4 3]",
         "0 1 0 rg 0 0 4 3 re f 1 0 0 rg 0 0 1 RG q 4 0 0 1 0 2 cm /I Do Q "
         "q 0.25 g 0 0 1 2 re W n BT ET 4 0 0 1 0 1 cm /I Do Q "
         "q 4 0 0 1 0 0 cm /I Do Q"), 4u, 3u, stencil_scene) == EXIT_SUCCESS);
@@ -351,13 +404,13 @@ static int native_image_depth_cases(const std::string& filename)
     stencil.stencil_entries = "/Decode [1 0] /Interpolate true";
     stencil.rotation = 90;
     const std::vector<unsigned char> green_half_blue{0u,255u,0u, 0u,128u,128u, 0u,0u,255u};
-    CHECK(render_stencil(create(stencil, fault::none, "[0 0 3 1]",
+    CHECK(render_only(create(stencil, fault::none, "[0 0 3 1]",
         "0 1 0 rg 0 0 3 1 re f BT ET 0 0 1 rg q 3 0 0 1 0 0 cm /I Do Q"),
         1u, 3u, green_half_blue) == EXIT_SUCCESS);
     stencil.stencil_entries = "/Decode [1 1]";
-    CHECK(render_stencil(create(stencil), 0u, 0u, {}, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    CHECK(render_only(create(stencil), 0u, 0u, {}, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
 
-    CHECK(rendered == 84u && extracted == 84u && denied == 19u);
+    CHECK(rendered == 88u && extracted == 88u && denied == 25u);
     std::printf("Image depth: %zu full-page RGB matches, %zu extracted bitmap matches, %zu atomic errors\n",
         rendered, extracted, denied);
     return EXIT_SUCCESS;

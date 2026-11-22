@@ -425,6 +425,26 @@ bool image_sample_is_masked(const image_samples& samples, const std::vector<unsi
     return true;
 }
 
+namespace {
+
+image_alpha_plane allocate_mask_plane(const image_samples& samples, Obj dict,
+    unsigned bits, size_t available_bytes)
+{
+    Obj interpolate = dict.getKey("/Interpolate");
+    require(interpolate.isNull() || interpolate.isBool());
+    const size_t count = static_cast<size_t>(samples.width) * samples.height;
+    const size_t stride = bits == 16u ? 2u : 1u;
+    require(samples.bytes.size() <= available_bytes &&
+        count <= (available_bytes - samples.bytes.size()) / stride, QUANTAPDF_ERROR_UNSUPPORTED);
+#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
+    quantapdf_source_stage_oom_arm(15u);
+#endif
+    return {std::vector<unsigned char>(count * stride), samples.width, samples.height,
+        interpolate.isBool() && interpolate.getBoolValue(), bits};
+}
+
+} // namespace
+
 image_alpha_plane qpdf_read_stencil(Obj mask, size_t pixel_limit, size_t color_bytes)
 {
     Obj dict = mask.getDict();
@@ -436,23 +456,46 @@ image_alpha_plane qpdf_read_stencil(Obj mask, size_t pixel_limit, size_t color_b
         dict.getKey("/SMask").isNull());
     require(dict.getKey("/OC").isNull() && dict.getKey("/SMaskInData").isNull(),
         QUANTAPDF_ERROR_UNSUPPORTED);
-    Obj interpolate = dict.getKey("/Interpolate");
-    require(interpolate.isNull() || interpolate.isBool());
-
     require(color_bytes <= image_work_limit, QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t available_bytes = image_work_limit - color_bytes;
     const auto samples = read_image_samples(mask, 1u, false, std::min(pixel_limit, available_bytes), true);
-    const size_t count = static_cast<size_t>(samples.width) * samples.height;
-    require(samples.bytes.size() <= available_bytes - count, QUANTAPDF_ERROR_UNSUPPORTED);
-#ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
-    quantapdf_source_stage_oom_arm(15u);
-#endif
-    image_alpha_plane alpha{{}, samples.width, samples.height, interpolate.isBool() && interpolate.getBoolValue()};
-    alpha.bytes.resize(count);
+    auto alpha = allocate_mask_plane(samples, dict, 1u, available_bytes);
     const unsigned painted_bit = samples.decode[0] == 0.0 ? 0u : 1u;
     for (size_t y = 0u; y < samples.height; ++y)
         for (size_t x = 0u; x < samples.width; ++x)
             alpha.bytes[y * samples.width + x] = samples.raw(x, y, 0u) == painted_bit ? 255u : 0u;
+    return alpha;
+}
+
+image_alpha_plane qpdf_read_soft_mask(Obj mask, size_t pixel_limit, size_t color_bytes, bool allow_matte)
+{
+    require(mask.isStream(), QUANTAPDF_ERROR_UNSUPPORTED);
+    Obj dict = mask.getDict();
+    Obj type = dict.getKey("/Type"), stencil = dict.getKey("/ImageMask");
+    require((type.isNull() || type.isNameAndEquals("/XObject")) &&
+        dict.getKey("/Subtype").isNameAndEquals("/Image") &&
+        dict.getKey("/ColorSpace").isNameAndEquals("/DeviceGray") &&
+        (stencil.isNull() || (stencil.isBool() && !stencil.getBoolValue())) &&
+        dict.getKey("/Mask").isNull() && dict.getKey("/SMask").isNull());
+    require(dict.getKey("/OC").isNull() && dict.getKey("/SMaskInData").isNull() &&
+        (allow_matte || dict.getKey("/Matte").isNull()),
+        QUANTAPDF_ERROR_UNSUPPORTED);
+
+    require(color_bytes <= image_work_limit, QUANTAPDF_ERROR_UNSUPPORTED);
+    const size_t available_bytes = image_work_limit - color_bytes;
+    const auto samples = read_image_samples(mask, 1u, false, std::min(pixel_limit, available_bytes));
+    const bool direct = samples.decode[0] == 0.0 && samples.decode[1] == 1.0;
+    const bool inverted = samples.decode[0] == 1.0 && samples.decode[1] == 0.0;
+    const bool wide = samples.bits == 16u || (!direct && !inverted);
+    auto alpha = allocate_mask_plane(samples, dict, wide ? 16u : 8u, available_bytes);
+    const unsigned maximum = wide ? 65535u : 255u;
+    auto *destination = alpha.bytes.data();
+    for (size_t y = 0u; y < samples.height; ++y)
+        for (size_t x = 0u; x < samples.width; ++x) {
+            const auto value = samples.value(x, y, 0u, maximum);
+            if (wide) *destination++ = static_cast<unsigned char>(value >> 8u);
+            *destination++ = static_cast<unsigned char>(value);
+        }
     return alpha;
 }
 
@@ -510,12 +553,16 @@ device_image_samples normalize_device_samples(image_samples&& samples, image_alp
 
 } // namespace
 
-device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj mask, size_t mask_pixel_limit)
+device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj dict, size_t mask_pixel_limit)
 {
     const auto& samples = colors.samples;
     image_alpha_plane alpha;
-    if (mask.isStream()) {
-        alpha = qpdf_read_stencil(mask, mask_pixel_limit, samples.bytes.size() + colors.palette.size());
+    Obj soft = dict.getKey("/SMask"), mask = dict.getKey("/Mask");
+    const size_t color_bytes = samples.bytes.size() + colors.palette.size();
+    if (!soft.isNull()) {
+        alpha = qpdf_read_soft_mask(soft, mask_pixel_limit, color_bytes, false);
+    } else if (mask.isStream()) {
+        alpha = qpdf_read_stencil(mask, mask_pixel_limit, color_bytes);
     } else if (const auto key = qpdf_read_color_key(mask, samples); !key.empty()) {
         const size_t count = static_cast<size_t>(samples.width) * samples.height;
         require(count <= image_work_limit - samples.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);

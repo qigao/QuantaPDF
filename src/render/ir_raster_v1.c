@@ -801,17 +801,17 @@ static void qp_blend_image_sample(unsigned char *dst, const uint64_t color[3],
 }
 
 /* Premultiplied filtered colors, followed by geometrical coverage and
- * straight-alpha destination output. With 14 fractional bits per axis,
- * even RAW16 * alpha * weight * 16-cover * 255 stays in uint64_t. */
+ * straight-alpha destination output. An 8-bit alpha uses up to 14
+ * weight bits per axis, a 16-bit alpha up to ten. In both cases the
+ * weighted color numerator (including coverage and dst alpha) fits uint64_t. */
 static void qp_blend_alpha_image_sample(unsigned char *dst, const uint64_t color[3],
-    uint64_t alpha, uint64_t total_weight, unsigned color_scale, unsigned covered)
+    qp_alpha_sample alpha, unsigned color_scale, unsigned covered)
 {
-    if (alpha == 0u) return;
-    const uint64_t src_alpha = alpha * covered;
-    const uint64_t coverage_scale = QP_TOTAL_SAMPLES * total_weight;
-    const uint64_t dst_weight = (coverage_scale * 255u - src_alpha) * dst[3];
+    if (alpha.sum == 0u) return;
+    const uint64_t src_alpha = alpha.sum * covered;
+    const uint64_t alpha_scale = QP_TOTAL_SAMPLES * alpha.weight * alpha.maximum;
+    const uint64_t dst_weight = (alpha_scale - src_alpha) * dst[3];
     const uint64_t output_alpha = src_alpha * 255u + dst_weight;
-    const uint64_t alpha_scale = coverage_scale * 255u;
     dst[3] = (unsigned char)((output_alpha + alpha_scale / 2u) / alpha_scale);
     if (dst[3] == 0u) {
         dst[0] = dst[1] = dst[2] = 0u;
@@ -820,7 +820,8 @@ static void qp_blend_alpha_image_sample(unsigned char *dst, const uint64_t color
     const uint64_t denominator = output_alpha * color_scale;
     for (size_t c = 0u; c < 3u; ++c) {
         const uint64_t numerator = color[c] * covered * 255u + dst[c] * dst_weight * color_scale;
-        dst[c] = (unsigned char)((numerator + denominator / 2u) / denominator);
+        dst[c] = (unsigned char)(numerator / denominator +
+            (numerator % denominator >= (denominator + 1u) / 2u));
     }
 }
 
@@ -857,8 +858,9 @@ static void qp_blend_bilinear_image(unsigned char *dst,
                 weights[3] * qp_image_sample(bottom_right, c, wide);
         if (components == 1u)
             color[1] = color[2] = color[0];
-        qp_blend_alpha_image_sample(dst, color, weights[0] + weights[1] + weights[2] + weights[3],
-            (uint64_t)one * one, wide ? QP_WIDE_SAMPLE_SCALE : 1u, covered);
+        const qp_alpha_sample alpha = {weights[0] + weights[1] + weights[2] + weights[3],
+            (uint64_t)one * one, 255u};
+        qp_blend_alpha_image_sample(dst, color, alpha, wide ? QP_WIDE_SAMPLE_SCALE : 1u, covered);
         return;
     }
 
@@ -875,13 +877,13 @@ static void qp_blend_bilinear_image(unsigned char *dst,
     const uint64_t weight = (uint64_t)one * one;
     if (image->mask_width != 0u) {
         const qp_alpha_sample mask = qp_sample_image_mask(image->alpha_data, image->mask_width,
-            image->mask_height, image->mask_interpolate, u, v);
-        if (mask.sum != 255u * mask.weight) {
+            image->mask_height, image->mask_interpolate, image->mask_bits, u, v);
+        if (mask.sum != mask.maximum * mask.weight) {
             /* Keep 16-bit color while combining independently filtered grids. */
             const unsigned expand = wide ? 1u : QP_WIDE_SAMPLE_SCALE;
             for (size_t c = 0u; c < 3u; ++c)
                 color[c] = ((color[c] * expand + weight / 2u) / weight) * mask.sum;
-            qp_blend_alpha_image_sample(dst, color, mask.sum, mask.weight, QP_WIDE_SAMPLE_SCALE, covered);
+            qp_blend_alpha_image_sample(dst, color, mask, QP_WIDE_SAMPLE_SCALE, covered);
             return;
         }
     }
@@ -900,14 +902,14 @@ static void qp_blend_nearest_image(unsigned char *dst,
         qp_alpha_sample alpha;
         if (image->mask_width != 0u)
             alpha = qp_sample_image_mask(image->alpha_data, image->mask_width,
-                image->mask_height, image->mask_interpolate, u, v);
+                image->mask_height, image->mask_interpolate, image->mask_bits, u, v);
         else
-            alpha = (qp_alpha_sample){image->alpha_data[y * image->width + x], 1u};
+            alpha = (qp_alpha_sample){image->alpha_data[y * image->width + x], 1u, 255u};
         const int wide = image->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16;
         const unsigned char *src = image->data + (wide ? 2u : 1u) * offset;
         const uint64_t color[3] = {qp_image_sample(src, 0u, wide) * alpha.sum,
             qp_image_sample(src, green, wide) * alpha.sum, qp_image_sample(src, blue, wide) * alpha.sum};
-        qp_blend_alpha_image_sample(dst, color, alpha.sum, alpha.weight,
+        qp_blend_alpha_image_sample(dst, color, alpha,
             wide ? QP_WIDE_SAMPLE_SCALE : 1u, covered);
     } else if (image->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) {
         const unsigned char *src = image->data + 2u * offset;

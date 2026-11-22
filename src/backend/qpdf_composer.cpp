@@ -2009,7 +2009,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         for (std::size_t i = 0; i < ir->resources.image_count; ++i) {
             auto const& image = ir->resources.images[i];
             const bool wide = image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16;
-            uses_wide_images |= wide;
+            uses_wide_images |= wide || image.mask_bits == 16u;
             auto stream = pdf.newStream(std::string(
                 reinterpret_cast<char const*>(image.data), image.size));
             auto dictionary = stream.getDict();
@@ -2036,7 +2036,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         QPDFObjectHandle::newInteger(image.jpeg_color_transform));
                     dictionary.replaceKey("/DecodeParms", parameters);
                 }
-            } else if (image.mask_width != 0u) {
+            } else if (image.mask_bits == 1u) {
                 const size_t row_bytes = (static_cast<size_t>(image.mask_width) - 1u) / 8u + 1u;
                 std::string bits(row_bytes * image.mask_height, '\0');
                 for (size_t y = 0; y < image.mask_height; ++y)
@@ -2063,13 +2063,15 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 alpha_dictionary.replaceKey(
                     "/Subtype", QPDFObjectHandle::newName("/Image"));
                 alpha_dictionary.replaceKey(
-                    "/Width", QPDFObjectHandle::newInteger(image.width));
+                    "/Width", QPDFObjectHandle::newInteger(image.mask_width != 0u ? image.mask_width : image.width));
                 alpha_dictionary.replaceKey(
-                    "/Height", QPDFObjectHandle::newInteger(image.height));
+                    "/Height", QPDFObjectHandle::newInteger(image.mask_height != 0u ? image.mask_height : image.height));
                 alpha_dictionary.replaceKey(
-                    "/BitsPerComponent", QPDFObjectHandle::newInteger(8));
+                    "/BitsPerComponent", QPDFObjectHandle::newInteger(image.mask_bits == 16u ? 16 : 8));
                 alpha_dictionary.replaceKey(
                     "/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
+                if (image.mask_interpolate)
+                    alpha_dictionary.replaceKey("/Interpolate", QPDFObjectHandle::newBool(true));
                 dictionary.replaceKey("/SMask", alpha_stream);
             }
             image_objects.push_back(stream);

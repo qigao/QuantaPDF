@@ -39,26 +39,37 @@ static inline size_t qp_nearest_texel(double coordinate, size_t extent)
 
 typedef struct qp_alpha_sample {
     uint64_t sum, weight;
+    unsigned maximum;
 } qp_alpha_sample;
+
+static inline unsigned qp_mask_texel(const unsigned char *data, size_t index, int wide)
+{
+    if (!wide) return data[index];
+    return ((unsigned)data[2u * index] << 8u) | data[2u * index + 1u];
+}
 
 /* A separate mask grid covers the same unit square as its base image. */
 static inline qp_alpha_sample qp_sample_image_mask(const unsigned char *data, size_t width,
-    size_t height, int interpolate, double u, double v)
+    size_t height, int interpolate, unsigned bits, double u, double v)
 {
+    const int wide = bits == 16u;
+    const unsigned maximum = wide ? 65535u : 255u;
     if (!interpolate) {
         const size_t x = qp_nearest_texel(u, width), y = qp_nearest_texel(v, height);
-        const qp_alpha_sample result = {data[y * width + x], 1u};
+        const qp_alpha_sample result = {qp_mask_texel(data, y * width + x, wide), 1u, maximum};
         return result;
     }
-    const unsigned one = QP_ALPHA_BILINEAR_ONE;
+    /* Ten weight bits per axis keep RAW16 color and alpha compositing
+     * within uint64_t, including geometry coverage and destination alpha. */
+    const unsigned one = wide ? 1024u : QP_ALPHA_BILINEAR_ONE;
     const qp_bilinear_axis x = qp_bilinear_taps(u, width, one), y = qp_bilinear_taps(v, height, one);
     const unsigned left = one - x.second_weight;
-    const unsigned top = left * data[y.first * width + x.first] +
-        x.second_weight * data[y.first * width + x.second];
-    const unsigned bottom = left * data[y.second * width + x.first] +
-        x.second_weight * data[y.second * width + x.second];
+    const unsigned top = left * qp_mask_texel(data, y.first * width + x.first, wide) +
+        x.second_weight * qp_mask_texel(data, y.first * width + x.second, wide);
+    const unsigned bottom = left * qp_mask_texel(data, y.second * width + x.first, wide) +
+        x.second_weight * qp_mask_texel(data, y.second * width + x.second, wide);
     const qp_alpha_sample result = {(uint64_t)top * (one - y.second_weight) +
-        (uint64_t)bottom * y.second_weight, (uint64_t)one * one};
+        (uint64_t)bottom * y.second_weight, (uint64_t)one * one, maximum};
     return result;
 }
 
