@@ -99,7 +99,11 @@ static int mask_transfer_equal(const quantapdf_mask_transfer *a,
             a[i].domain[0] != b[i].domain[0] || a[i].domain[1] != b[i].domain[1] ||
             a[i].has_range != b[i].has_range ||
             (a[i].has_range && (a[i].range[0] != b[i].range[0] || a[i].range[1] != b[i].range[1])) ||
-            a[i].c0 != b[i].c0 || a[i].c1 != b[i].c1 || a[i].exponent != b[i].exponent)
+            a[i].c0 != b[i].c0 || a[i].c1 != b[i].c1 || a[i].exponent != b[i].exponent ||
+            a[i].sample_offset != b[i].sample_offset || a[i].sample_count != b[i].sample_count ||
+            a[i].sample_bits != b[i].sample_bits || a[i].sample_order != b[i].sample_order ||
+            !bytes_equal(a[i].sample_encode, b[i].sample_encode, sizeof(a[i].sample_encode)) ||
+            !bytes_equal(a[i].sample_decode, b[i].sample_decode, sizeof(a[i].sample_decode)))
             return 0;
     }
     return 1;
@@ -117,6 +121,8 @@ static int clip_equal(const quantapdf_composer_clip_state *a,
             a->mask_mode == b->mask_mode && a->backdrop_luminosity == b->backdrop_luminosity &&
             a->transfer_count == b->transfer_count &&
             mask_transfer_equal(a->transfer, b->transfer, a->transfer_count) &&
+            a->transfer_sample_bytes == b->transfer_sample_bytes &&
+            bytes_equal(a->transfer_samples, b->transfer_samples, a->transfer_sample_bytes) &&
             bytes_equal(a->members, b->members, a->member_count * sizeof(*a->members)) &&
             optional_clip_values_equal(a->member_opacities, b->member_opacities, a->member_count) &&
             optional_clip_values_equal(a->member_luminosities, b->member_luminosities, a->member_count);
@@ -442,6 +448,7 @@ static void drop_clip(quantapdf_composer_clip_state *value)
     free(value->member_opacities);
     free(value->member_luminosities);
     free(value->transfer);
+    free(value->transfer_samples);
     memset(value, 0, sizeof(*value));
 }
 
@@ -494,6 +501,12 @@ quantapdf_status quantapdf_resource_intern_clip(
             status = QUANTAPDF_ERROR_UNSUPPORTED;
         else
             bytes += candidate->transfer_count * sizeof(*candidate->transfer);
+    }
+    if (status == QUANTAPDF_OK) {
+        if (candidate->transfer_sample_bytes > SIZE_MAX - bytes)
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+        else
+            bytes += candidate->transfer_sample_bytes;
     }
     if (status == QUANTAPDF_OK)
         existing = quantapdf_resource_find_clip(registry, candidate);

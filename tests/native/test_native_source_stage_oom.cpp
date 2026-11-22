@@ -4976,6 +4976,8 @@ static int content_stream_source_contracts(
 static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults)
 {
     using namespace native_graphics_fixture;
+    const auto sampled_tables=sampled_stitch_tables();
+    const std::vector<sampled_transfer_fixture> no_tables;
     const struct {
         const char *content;
         size_t nodes;
@@ -4983,6 +4985,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const char *mask=nullptr;
         const char *space=nullptr;
         size_t function_nodes=0u;
+        bool sampled=false;
     } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
@@ -5003,6 +5006,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
          " /Range [-.051 1.25] /C0 [1] /C1 [.375] /N -.5 >> >>","/DeviceGray",1u},
         {"0 0 4 3 re f",6u,false,false,stitched_alpha_mask,nullptr,3u},
         {stitched_luminosity_fills,12u,false,false,stitched_luminosity_mask,"/DeviceGray",5u},
+        {".25 g 0 0 2 2.5 re f .8125 g 2 0 2 2.5 re f",8u,false,false,
+         sampled_stitch_mask,"/DeviceGray",3u,true},
     };
     for(const auto& test:cases) {
         const bool luminosity=test.space!=nullptr;
@@ -5010,7 +5015,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
             test.knockout?alpha_knockout_form:alpha_form;
         const auto sample=create_alpha_group(
             test.nodes==1u?"/Alpha gs 0 0 12 4 re f":"q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",
-            test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>");
+            test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>",
+            false,test.sampled?sampled_tables:no_tables);
         auto caps=defaults;
         caps.max_content_bytes=sample.decoded_bytes;
         quantapdf_qpdf_document *document=nullptr;
@@ -5043,7 +5049,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                   group->mask_mode==(luminosity?QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY:
                                                QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA) &&
                   (group->member_opacities!=nullptr)==test.partial && bool(group->knockout)==test.knockout &&
-                  group->transfer_count==test.function_nodes);
+                  group->transfer_count==test.function_nodes &&
+                  group->transfer_sample_bytes==(test.sampled?6u:0u));
             unsigned char *encoded=nullptr;
             size_t encoded_size=0u;
             CHECK(quantapdf_qpdf_compose(&ir,&encoded,&encoded_size)==QUANTAPDF_OK);
@@ -5064,7 +5071,10 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                   (copied_group->member_opacities!=nullptr)==test.partial &&
                   copied_group->mask_mode==group->mask_mode &&
                   copied_group->backdrop_luminosity==group->backdrop_luminosity &&
-                  copied_group->transfer_count==test.function_nodes);
+                  copied_group->transfer_count==test.function_nodes &&
+                  copied_group->transfer_sample_bytes==group->transfer_sample_bytes);
+            if(test.sampled)CHECK(std::memcmp(group->transfer_samples,copied_group->transfer_samples,
+                                            group->transfer_sample_bytes)==0);
             for(size_t n=0u;n<test.function_nodes;++n) {
                 const auto& a=group->transfer[n];
                 const auto& b=copied_group->transfer[n];
@@ -5072,7 +5082,11 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                       a.has_range==b.has_range && a.range[0]==b.range[0] && a.range[1]==b.range[1] &&
                       a.c0==b.c0 && a.c1==b.c1 && a.exponent==b.exponent &&
                       a.end==b.end && a.upper_bound==b.upper_bound &&
-                      a.encode[0]==b.encode[0] && a.encode[1]==b.encode[1]);
+                      a.encode[0]==b.encode[0] && a.encode[1]==b.encode[1] &&
+                      a.sample_offset==b.sample_offset && a.sample_count==b.sample_count &&
+                      a.sample_bits==b.sample_bits && a.sample_order==b.sample_order &&
+                      a.sample_encode[0]==b.sample_encode[0] && a.sample_encode[1]==b.sample_encode[1] &&
+                      a.sample_decode[0]==b.sample_decode[0] && a.sample_decode[1]==b.sample_decode[1]);
             }
             for(size_t branch=0u;branch<group->member_count;++branch) {
                 if(test.partial)CHECK(copied_group->member_opacities[branch]==group->member_opacities[branch]);

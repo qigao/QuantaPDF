@@ -79,10 +79,13 @@ typedef struct quantapdf_mask_transfer {
     double c0, c1, exponent;
     int has_range;
     /* Preorder nodes. Children of a Type 3 node start at its next slot.
-     * "end" is the index just past the subtree, including for a Type 2 leaf. */
+     * "end" is the index just past the subtree, including for a leaf. */
     size_t end;
     double upper_bound;
     double encode[2];
+    size_t sample_offset, sample_count;
+    unsigned sample_bits, sample_order;
+    double sample_encode[2], sample_decode[2];
 } quantapdf_mask_transfer;
 
 typedef struct quantapdf_composer_clip_state {
@@ -99,6 +102,8 @@ typedef struct quantapdf_composer_clip_state {
     quantapdf_composer_soft_mask_mode mask_mode;
     quantapdf_mask_transfer *transfer; /* Absent for /Identity. */
     size_t transfer_count;
+    unsigned char *transfer_samples;
+    size_t transfer_sample_bytes;
     int knockout;
 } quantapdf_composer_clip_state;
 

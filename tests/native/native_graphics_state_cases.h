@@ -311,6 +311,50 @@ static int alpha_group_cases(const std::string& filename)
         CHECK(actual[i]==(x>=1u && x<9u && y>=3u?32u:191u));
     }
 
+    for(unsigned bits:{1u,2u,4u,8u,12u,16u,24u,32u}) {
+        const auto maximum=static_cast<uint32_t>((UINT64_C(1)<<bits)-1u);
+        const auto sampled_alpha=create_alpha_group(
+            "/Alpha gs 0 0 12 4 re f","/Half gs 0 0 2 3 re f /Inert gs 2 0 2 3 re f",
+            alpha_form,"<< /S /Alpha >>",false,
+            {{"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /Order 3 /BitsPerSample "+
+              std::to_string(bits)+" >>",pack_samples(bits,{maximum,0u})}});
+        CHECK(render(sampled_alpha,144u,actual)==EXIT_SUCCESS);
+        for(size_t i=0u;i<actual.size();++i) {
+            const size_t pixel=i/3u,x=pixel%24u,y=pixel/24u;
+            CHECK(actual[i]==(x>=1u && x<9u && y>=3u?(x<5u?128u:255u):0u));
+        }
+    }
+
+    const auto one_sample=create_alpha_group("/Alpha gs 0 0 12 4 re f","",alpha_form,
+        "<< /S /Alpha >>",false,
+        {{"<< /FunctionType 0 /Domain [0 1] /Range [.125 .625] /Size [1]"
+          " /BitsPerSample 8 /Order 3 >>",pack_samples(8u,{255u})}});
+    CHECK(render(one_sample,72u,actual)==EXIT_SUCCESS);
+    CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==96u;}));
+
+    const auto sampled_stitch=create_alpha_group("/Alpha gs 0 0 12 4 re f",sampled_stitch_fills,
+        luminosity_form("/DeviceGray").c_str(),sampled_stitch_mask,false,sampled_stitch_tables());
+    for(unsigned dpi:{72u,144u}) {
+        CHECK(render(sampled_stitch,dpi,actual)==EXIT_SUCCESS);
+        const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+        constexpr unsigned divisor=16u*16u;
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+            unsigned opacity=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                unsigned value=16u;
+                if(py<2.5 && px>=0.5 && px<4.5) {
+                    constexpr unsigned strips[]={2u,12u,8u,0u,9u,8u,7u,16u};
+                    value=strips[static_cast<size_t>(px*2.0)-1u];
+                }
+                opacity+=value;
+            }
+            for(size_t channel=0u;channel<3u;++channel)
+                CHECK(actual[3u*(y*w+x)+channel]==(255u*(divisor-opacity)+divisor/2u)/divisor);
+        }
+    }
+
     std::string many_fills;
     for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
     many_fills+="0 0 1 1 re f";
@@ -361,6 +405,12 @@ static int alpha_group_cases(const std::string& filename)
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
         "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [] /Encode [0 1]"
         " /Functions [<< /FunctionType 4 >>] >> >>"),72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,"<< /S /Alpha >>",false,
+        {{"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [3] /BitsPerSample 12 >>",
+          pack_samples(12u,{4095u,0u})}}),72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,"<< /S /Alpha >>",false,
+        {{"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [1048577] /BitsPerSample 8 >>",""}}),
+        72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 

@@ -113,9 +113,42 @@ inline constexpr const char* stitched_alpha_mask =
     "<< /FunctionType 2 /Domain [0 1] /C0 [.25] /C1 [.25] /N 1 >> "
     "<< /FunctionType 2 /Domain [0 1] /N 1 >>] >> >>";
 
+struct sampled_transfer_fixture {
+    std::string dictionary;
+    std::string bytes;
+    int child=-1;
+};
+
+inline std::string pack_samples(unsigned bits,std::initializer_list<uint32_t> values)
+{
+    std::string bytes((values.size()*bits+7u)/8u,'\0');
+    size_t offset=0u;
+    for(uint32_t value:values)for(unsigned b=bits;b>0u;--b,++offset) {
+        const unsigned bit=(value>>(b-1u))&1u;
+        bytes[offset/8u]=static_cast<char>(static_cast<unsigned char>(bytes[offset/8u])|
+            (bit<<(7u-offset%8u)));
+    }
+    return bytes;
+}
+
+inline constexpr const char* sampled_stitch_mask =
+    "<< /S /Luminosity /BC [.625] /TR << /FunctionType 3 /Domain [0 1] "
+    "/Bounds [.5] /Encode [0 1 0 1] /Functions [null null] >> >>";
+inline constexpr const char* sampled_stitch_fills =
+    "0 g 0 0 .5 2.5 re f .25 g .5 0 .5 2.5 re f .28125 g 1 0 .5 2.5 re f .5 g 1.5 0 .5 2.5 re f "
+    ".5625 g 2 0 .5 2.5 re f .6875 g 2.5 0 .5 2.5 re f .8125 g 3 0 .5 2.5 re f .9375 g 3.5 0 .5 2.5 re f";
+
+inline std::vector<sampled_transfer_fixture> sampled_stitch_tables()
+{
+    return {{"<< /FunctionType 0 /Domain [.25 .75] /Range [.125 .75] /Size [3] "
+             "/BitsPerSample 12 /Encode [3 -1] /Decode [1 0] >>",pack_samples(12u,{4095u,0u,4095u}),0},
+            {"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [4] "
+             "/BitsPerSample 1 /Order 3 /Encode [0 4] >>",pack_samples(1u,{0u,1u,0u,1u}),1}};
+}
+
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
     const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>",
-    bool cyclic_transfer=false)
+    bool cyclic_transfer=false,const std::vector<sampled_transfer_fixture>& tables={})
 {
     auto pdf=QPDF::create();
     const auto font_fixture=native_ttf_fixture();
@@ -128,6 +161,13 @@ inline original create_alpha_group(const std::string& page_content, const std::s
     auto form_dict=form.getDict(), entries=Object::parse(form_dictionary);
     for(const auto& key:entries.getKeys())form_dict.replaceKey(key,entries.getKey(key));
     auto mask=Object::parse(soft_mask);
+    for(const auto& table:tables) {
+        auto stream=pdf->newStream(table.bytes);
+        auto dict=stream.getDict(),keys=Object::parse(table.dictionary);
+        for(const auto& key:keys.getKeys())dict.replaceKey(key,keys.getKey(key));
+        if(table.child<0)mask.replaceKey("/TR",stream);
+        else mask.getKey("/TR").getKey("/Functions").setArrayItem(table.child,stream);
+    }
     if(cyclic_transfer) {
         auto transfer=pdf->makeIndirectObject(mask.getKey("/TR"));
         transfer.getKey("/Functions").setArrayItem(0,transfer);
