@@ -106,10 +106,11 @@ static int clip_dag_acyclic(
             return 0;
     }
     clip = &registry->clips[id - 1u];
-    if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
+    if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+        (clip->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL && clip->member_count == 0u))
         return 1;
     if ((clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
-         clip->kind != QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) ||
+         clip->kind != QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL) ||
         clip->members == NULL || clip->member_count == 0u)
         return 0;
     stack[depth] = id;
@@ -207,25 +208,36 @@ quantapdf_status quantapdf_validate_ir(
     }
     for (i = 0; i < r->clip_count; ++i) {
         const quantapdf_composer_clip_state *v = &r->clips[i];
-        VALUE(v->kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL ?
+        const int mask = v->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL;
+        const int luminosity = mask && v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+        VALUE(mask ?
             ((v->knockout == 0 || v->knockout == 1) &&
              (v->member_opacities == NULL ||
               array_valid(v->member_opacities, v->member_count, sizeof(*v->member_opacities)))) :
             (v->knockout == 0 && v->member_opacities == NULL), QUANTAPDF_VALIDATION_CLIP, i);
+        VALUE(luminosity ?
+            (v->backdrop_luminosity >= 0.0 && v->backdrop_luminosity <= 1.0 &&
+             array_valid(v->member_luminosities, v->member_count, sizeof(*v->member_luminosities))) :
+            (v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA &&
+             v->backdrop_luminosity == 0.0 && v->member_luminosities == NULL),
+            QUANTAPDF_VALIDATION_CLIP, i);
         if (v->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             VALUE(quantapdf_validation_path_valid(v->commands, v->command_count) &&
                 transform_valid(v->transform) && v->fill_rule >= QUANTAPDF_COMPOSER_FILL_NONZERO &&
                 v->fill_rule <= QUANTAPDF_COMPOSER_FILL_EVEN_ODD, QUANTAPDF_VALIDATION_CLIP, i);
         } else {
-            VALUE((v->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
-                   v->kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) &&
-                v->member_count != 0 && array_valid(v->members, v->member_count, sizeof(*v->members)),
+            VALUE((v->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL || mask) &&
+                (v->member_count != 0 || luminosity) &&
+                array_valid(v->members, v->member_count, sizeof(*v->members)),
                 QUANTAPDF_VALIDATION_CLIP, i);
             for (j = 0; j < v->member_count; ++j) {
                 size_t id = v->members[j];
                 REF(required_id(id, r->clip_count), QUANTAPDF_VALIDATION_CLIP, i, id);
                 if (v->member_opacities != NULL)
                     VALUE(v->member_opacities[j] >= 0.0 && v->member_opacities[j] <= 1.0,
+                          QUANTAPDF_VALIDATION_CLIP, i);
+                if (luminosity)
+                    VALUE(v->member_luminosities[j] >= 0.0 && v->member_luminosities[j] <= 1.0,
                           QUANTAPDF_VALIDATION_CLIP, i);
             }
         }

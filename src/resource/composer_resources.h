@@ -70,7 +70,7 @@ typedef struct quantapdf_composer_soft_mask_state {
 typedef enum quantapdf_composer_clip_kind_internal {
     QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL = 1,
     QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL = 2,
-    QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL = 3
+    QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL = 3
 } quantapdf_composer_clip_kind_internal;
 
 typedef struct quantapdf_composer_clip_state {
@@ -81,7 +81,10 @@ typedef struct quantapdf_composer_clip_state {
     quantapdf_affine_transform transform;
     quantapdf_composer_clip_id *members;
     size_t member_count;
-    double *member_opacities; /* Absent when every alpha group member is opaque. */
+    double *member_opacities; /* Absent when every mask group member is opaque. */
+    double *member_luminosities; /* One projected DeviceGray value per luminosity fill. */
+    double backdrop_luminosity;
+    quantapdf_composer_soft_mask_mode mask_mode;
     int knockout;
 } quantapdf_composer_clip_state;
 

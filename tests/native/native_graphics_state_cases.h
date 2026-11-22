@@ -140,6 +140,47 @@ static int alpha_group_cases(const std::string& filename)
         }
     }
 
+    for(bool knockout:{false,true}) {
+        const auto luminosity=create_alpha_group(
+            "0 1 0 rg 0 0 12 4 re f q 0.75 0 8 4 re W n /Alpha gs "
+            "0 0 1 rg 0 1 12 3 re f q 12 0 0 1 0 0 cm /Plain Do Q Q",
+            ".8 g q /Half gs 0 0 2 3 re W n 0 0 3 4 re f Q "
+            "q /Quarter gs 1 0 0 rg 1.25 0 2 2.5 re f* Q "
+            "q /Zero gs .1 g 1.5 0 0.5 1 re f Q 3 2 1 1 re f",
+            luminosity_form("/DeviceRGB",knockout).c_str(),
+            "<< /S /Luminosity /BC [.2 .4 .1] /TR /Identity >>");
+        for(unsigned dpi:{72u,144u}) {
+            std::vector<unsigned char> pixels;
+            CHECK(render(luminosity,dpi,pixels)==EXIT_SUCCESS);
+            const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+            constexpr unsigned backdrop=2456u,half_gray=4428u,quarter_red=2442u,
+                overlap=3921u,gray=6400u,scale=8000u*16u;
+            for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+                unsigned blue=0u,yellow=0u;
+                for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                    const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                    if(px<0.75 || px>=8.75)continue;
+                    unsigned value=backdrop;
+                    if(px<4.5 && py<2.5) {
+                        const bool first=px<2.5;
+                        const bool second=px>=1.75 && px<3.75;
+                        const bool zero=px>=2.0 && px<2.5 && py<1.0;
+                        if(px>=3.5 && py>=2.0)value=gray;
+                        else if(knockout)value=zero?backdrop:second?quarter_red:first?half_gray:backdrop;
+                        else value=first?(second?overlap:half_gray):second?quarter_red:backdrop;
+                    }
+                    if(py>=1.0)blue+=value;
+                    else yellow+=value;
+                }
+                const size_t index=(y*w+x)*3u;
+                CHECK(pixels[index]==(255u*yellow+scale/2u)/scale);
+                CHECK(pixels[index+1u]==(255u*(scale-blue)+scale/2u)/scale);
+                CHECK(pixels[index+2u]==(255u*blue+scale/2u)/scale);
+            }
+        }
+    }
+
     // A real outlined glyph: use an independently authored Clip as the
     // expected geometry, and require both ink and a measurable mask effect.
     const auto text=create_alpha_group(
@@ -167,6 +208,16 @@ static int alpha_group_cases(const std::string& filename)
         CHECK(actual[i]==((32u-glyph_samples)*255u+16u)/32u);
     }
 
+    const auto luminosity_text=create_alpha_group(
+        "BT /F 4 Tf /Alpha gs 1 1 Td <002d> Tj ET",".5 g 0 0 3 2.5 re f",
+        luminosity_form("/DeviceGray").c_str(),"<< /S /Luminosity >>");
+    CHECK(render(luminosity_text,144u,reference)==EXIT_SUCCESS && actual==reference);
+
+    const auto empty_luminosity=create_alpha_group("/Alpha gs 0 0 12 4 re f","",
+        luminosity_form("/DeviceGray").c_str(),"<< /S /Luminosity /BC [.375] >>");
+    CHECK(render(empty_luminosity,72u,actual)==EXIT_SUCCESS);
+    CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==159u;}));
+
     std::string many_fills;
     for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
     many_fills+="0 0 1 1 re f";
@@ -193,6 +244,12 @@ static int alpha_group_cases(const std::string& filename)
     }
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,"<< /S /Luminosity >>"),
         72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,
+        luminosity_form("/DeviceCMYK").c_str(),"<< /S /Luminosity >>"),
+        72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,
+        luminosity_form("/DeviceGray").c_str(),"<< /S /Luminosity /BC [.5 .5 .5] >>"),
+        72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 

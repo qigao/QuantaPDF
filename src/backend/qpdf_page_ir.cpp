@@ -72,6 +72,18 @@ double finite_number(Obj x)
     return result;
 }
 
+double unit_component(Obj value)
+{
+    const double component=finite_number(value);
+    admit(component>=0.0 && component<=1.0,QUANTAPDF_ERROR_UNSUPPORTED);
+    return component;
+}
+
+double rgb_luminosity(const std::array<double,3u>& rgb)
+{
+    return (30.0*rgb[0]+59.0*rgb[1]+11.0*rgb[2])/100.0;
+}
+
 int64_t page_lattice(Obj number,int64_t ticks)
 {
     admit(number.isNumber(),QUANTAPDF_ERROR_FORMAT);
@@ -192,23 +204,26 @@ struct staged_path {
     bool stroke=false;
     uint32_t stroke_argb=UINT32_C(0xff000000);
     float stroke_width=1.0f; /* bounded TeXample geometry may vary */
-    double alpha=1.0;
+    double alpha=1.0,luminosity=0.0;
 };
 
 struct staged_image_clip {
     std::vector<quantapdf_composer_path_command> commands;
     quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
 };
-struct staged_alpha_fill {
+struct staged_mask_fill {
     clip_identity clip;
-    double opacity;
+    double opacity,luminosity;
 };
 struct staged_clip_definition {
     staged_image_clip path;
     clip_identity parent=0u;
     clip_identity other=0u; // An intersection of two existing roots has no path.
-    std::vector<staged_alpha_fill> group_fills={};
-    bool knockout=false;
+    std::vector<staged_mask_fill> group_fills={};
+    bool knockout=false,luminosity_mask=false;
+    double backdrop_luminosity=0.0;
+
+    bool is_mask_group() const {return luminosity_mask || !group_fills.empty();}
 };
 
 /* The bounded Stroke samplers still require short leaves. Ordinary Clip
@@ -277,7 +292,7 @@ struct admission {
     size_t page_w,page_h;
     size_t source_pixels=0,drawn_pixels=0;
     size_t content_bytes=0;
-    bool has_alpha_groups=false;
+    bool has_mask_groups=false;
     std::vector<staged_image> draws;
     std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
@@ -364,7 +379,7 @@ struct admission {
                     bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000),
                     float width=1.0f)
     {
-        admit(!is_stroke || !has_alpha_groups,QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(!is_stroke || !has_mask_groups,QUANTAPDF_ERROR_UNSUPPORTED);
         const bool three_path=three_branch_candidate && draws.empty() &&
             (is_stroke ?
                 (painted_paths.empty() && three_branch_count==1u) :
@@ -525,7 +540,7 @@ struct admission {
     }
 };
 
-Obj read_source_gs_mask(Obj resources,Obj name,bool in_alpha_group,double& fill_alpha)
+Obj read_source_gs_mask(Obj resources,Obj name,bool in_mask_group,double& fill_alpha)
 {
     admit(resources.isDictionary() && name.isName(),
           QUANTAPDF_ERROR_FORMAT);
@@ -552,7 +567,7 @@ Obj read_source_gs_mask(Obj resources,Obj name,bool in_alpha_group,double& fill_
         if(!alpha.isNull()) {
             admit(alpha.isNumber(),QUANTAPDF_ERROR_FORMAT);
             const double value=alpha.getNumericValue();
-            if(in_alpha_group && std::string_view(key)=="/ca") {
+            if(in_mask_group && std::string_view(key)=="/ca") {
                 admit(value>=0.0 && value<=1.0,QUANTAPDF_ERROR_UNSUPPORTED);
                 fill_alpha=value;
             } else {
@@ -617,7 +632,7 @@ class page_content_reader final : public Obj::ParserCallbacks {
         matrix ctm;
         uint32_t fill,stroke;
         clip_identity clip,mask;
-        double width,miter,fill_alpha;
+        double width,miter,fill_alpha,fill_luminosity;
         int cap,join;
         bool default_dash,rgb_exact;
     };
@@ -644,7 +659,7 @@ public:
         }
         const std::string op=item.getOperatorValue();
         if(op=="BT") {
-            admit(!in_alpha_group,QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(!in_mask_group,QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.empty() && pending_path.empty() && !clip_pending,
                   QUANTAPDF_ERROR_FORMAT);
             admit(target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
@@ -771,7 +786,7 @@ public:
             saw_saved_scope=true;
             QP_SOURCE_STACK_GROW(stack);
             stack.push_back({current,fill_argb,stroke_argb,clip_active,mask_active,
-                stroke_width,stroke_miter,fill_alpha,stroke_cap,stroke_join,
+                stroke_width,stroke_miter,fill_alpha,fill_luminosity,stroke_cap,stroke_join,
                 stroke_default_dash,stroke_rgb_exact});
         } else if(op=="Q") {
             admit(args.empty() && !stack.empty());
@@ -791,7 +806,7 @@ public:
             const bool was_clipped=clip_active!=0u;
             current=saved.ctm;fill_argb=saved.fill;clip_active=saved.clip;mask_active=saved.mask;
             stroke_argb=saved.stroke;stroke_width=saved.width;stroke_miter=saved.miter;
-            fill_alpha=saved.fill_alpha;
+            fill_alpha=saved.fill_alpha;fill_luminosity=saved.fill_luminosity;
             stroke_cap=saved.cap;stroke_join=saved.join;
             stroke_default_dash=saved.default_dash;stroke_rgb_exact=saved.rgb_exact;
             if(target.clip_completed && was_clipped && !clip_active)
@@ -818,7 +833,7 @@ public:
             /* An exact page-height negative-Y authoring CTM selects
              * only the *candidate*. It does NOT make a page paintable;
              * the complete original 3GS/7Clip shape is still mandatory. */
-            if(!in_alpha_group && !target.has_alpha_groups && !target.three_branch_candidate && !target.clip_completed &&
+            if(!in_mask_group && !target.has_mask_groups && !target.three_branch_candidate && !target.clip_completed &&
                target.order.empty() && target.draws.empty() &&
                target.exact_page_w==600.0 &&
                target.exact_page_h==600.0 &&
@@ -861,7 +876,7 @@ public:
             admit(args.size()==1u && args[0].isName(),QUANTAPDF_ERROR_UNSUPPORTED);
             apply_gs(args[0],current,mask_active);
         } else if(op=="Do") {
-            admit(!in_alpha_group,QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(!in_mask_group,QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -875,15 +890,13 @@ public:
         } else if(op=="rg") {
             admit(args.size()==3u);
             uint32_t rgb=0u;
-            for(size_t i=0u;i<3u;++i) {
-                const double channel=finite_number(args[i]);
-                uint32_t component=0u;
-                admit(channel>=0.0 && channel<=1.0,
-                      QUANTAPDF_ERROR_UNSUPPORTED);
-                component=static_cast<uint32_t>(
-                    std::floor(channel*255.0+0.5));
+            std::array<double,3u> channels;
+            for(size_t i=0u;i<channels.size();++i) {
+                channels[i]=unit_component(args[i]);
+                const auto component=static_cast<uint32_t>(std::floor(channels[i]*255.0+0.5));
                 rgb|=component << (16u-8u*i);
             }
+            if(in_mask_group)fill_luminosity=rgb_luminosity(channels);
             fill_argb=UINT32_C(0xff000000)|rgb;
             if(target.texample_original_profile) {
                 admit(texample_original_ctm &&
@@ -896,9 +909,8 @@ public:
             }
         } else if(op=="g") {
             admit(args.size()==1u);
-            const double channel=finite_number(args[0]);
-            admit(channel>=0.0 && channel<=1.0,
-                  QUANTAPDF_ERROR_UNSUPPORTED);
+            const double channel=unit_component(args[0]);
+            if(in_mask_group)fill_luminosity=channel;
             const uint32_t gray=static_cast<uint32_t>(
                 std::floor(channel*255.0+0.5));
             fill_argb=UINT32_C(0xff000000) |
@@ -1151,6 +1163,7 @@ public:
                 op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
             target.painted_paths.back().alpha=fill_alpha;
+            target.painted_paths.back().luminosity=fill_luminosity;
             QP_SOURCE_STAGE_ARM(7u);
             target.scoped_clip_membership.push_back(target.paint_clip(clip_active,mask_active));
             clear_path();
@@ -1278,19 +1291,19 @@ public:
     }
 private:
     page_content_reader(admission& group,size_t& bytes,const matrix& ctm) :
-        target(group),content_bytes(bytes),in_alpha_group(true),current(ctm) {}
+        target(group),content_bytes(bytes),in_mask_group(true),current(ctm) {}
 
     void apply_gs(Obj name,const matrix& ctm,clip_identity& active)
     {
-        Obj mask=read_source_gs_mask(target.resources,name,in_alpha_group,fill_alpha);
+        Obj mask=read_source_gs_mask(target.resources,name,in_mask_group,fill_alpha);
         if(mask.isNull())return;
         if(mask.isNameAndEquals("/None")) {
             active=0u;
             return;
         }
-        admit(!in_alpha_group && target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
-        active=parse_alpha_group(mask,ctm);
-        target.has_alpha_groups=true;
+        admit(!in_mask_group && target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
+        active=parse_mask_group(mask,ctm);
+        target.has_mask_groups=true;
     }
 
     static quantapdf_status text_graphics_state(void *user,Obj name,const matrix& ctm,
@@ -1304,14 +1317,16 @@ private:
           catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
     }
 
-    clip_identity parse_alpha_group(Obj mask,const matrix& ctm)
+    clip_identity parse_mask_group(Obj mask,const matrix& ctm)
     {
         for(const auto& key:mask.getKeys())
             admit(key=="/Type" || key=="/S" || key=="/G" || key=="/BC" || key=="/TR",
                   QUANTAPDF_ERROR_UNSUPPORTED);
         Obj mask_type=mask.getKey("/Type"), transfer=mask.getKey("/TR"), form=mask.getKey("/G");
+        Obj subtype=mask.getKey("/S");
+        const bool luminosity=subtype.isNameAndEquals("/Luminosity");
         admit((mask_type.isNull() || mask_type.isNameAndEquals("/Mask")) &&
-              mask.getKey("/S").isNameAndEquals("/Alpha") && form.isStream() &&
+              (luminosity || subtype.isNameAndEquals("/Alpha")) && form.isStream() &&
               (transfer.isNull() || transfer.isNameAndEquals("/Identity")),
               QUANTAPDF_ERROR_UNSUPPORTED);
 
@@ -1340,6 +1355,25 @@ private:
 
         Obj resources=dict.getKey("/Resources");
         admit(resources.isNull() || resources.isDictionary());
+        if(resources.isNull())resources=target.resources;
+        double backdrop_luminosity=0.0;
+        if(luminosity) {
+            const bool gray=space.isNameAndEquals("/DeviceGray");
+            admit(gray || space.isNameAndEquals("/DeviceRGB"),QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj color_spaces=resources.getKey("/ColorSpace");
+            if(!color_spaces.isNull()) {
+                admit(color_spaces.isDictionary());
+                admit(color_spaces.getKey("/DefaultGray").isNull() &&
+                      color_spaces.getKey("/DefaultRGB").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+            Obj backdrop=mask.getKey("/BC");
+            if(!backdrop.isNull()) {
+                admit(backdrop.isArray() && backdrop.getArrayNItems()==(gray?1:3));
+                if(gray)backdrop_luminosity=unit_component(backdrop.getArrayItem(0));
+                else backdrop_luminosity=rgb_luminosity({unit_component(backdrop.getArrayItem(0)),
+                    unit_component(backdrop.getArrayItem(1)),unit_component(backdrop.getArrayItem(2))});
+            }
+        }
         Obj transform=dict.getKey("/Matrix"), bbox=dict.getKey("/BBox");
         matrix placement=identity;
         if(!transform.isNull()) {
@@ -1350,7 +1384,7 @@ private:
         admit(bbox.isArray() && bbox.getArrayNItems()==4);
         const double x0=finite_number(bbox.getArrayItem(0)),y0=finite_number(bbox.getArrayItem(1)),
                      x1=finite_number(bbox.getArrayItem(2)),y1=finite_number(bbox.getArrayItem(3));
-        admission child(resources.isNull()?target.resources:resources,target.limits,target.page_w,target.page_h);
+        admission child(resources,target.limits,target.page_w,target.page_h);
         child.viewport_left=target.viewport_left;
         child.viewport_bottom=target.viewport_bottom;
         child.exact_page_h=target.exact_page_h;
@@ -1367,6 +1401,7 @@ private:
 
         admit(child.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
         if(child.order.empty()) {
+            if(luminosity)return target.append_clip({{},0u,0u,{},false,true,backdrop_luminosity});
             reader.complete_clip_contour();
             return target.append_clip({{std::move(reader.pending_path),QUANTAPDF_COMPOSER_FILL_NONZERO}});
         }
@@ -1376,17 +1411,18 @@ private:
             if(clip.parent!=0u)clip.parent+=base;
             target.append_clip(std::move(clip));
         }
-        std::vector<staged_alpha_fill> fills;
+        std::vector<staged_mask_fill> fills;
         fills.reserve(child.painted_paths.size());
         for(size_t i=0u;i<child.painted_paths.size();++i) {
             auto& fill=child.painted_paths[i];
             const auto clip=target.append_clip({{std::move(fill.commands),fill.fill_rule},
                                                 base+child.scoped_clip_membership[i]});
-            fills.push_back({clip,fill.alpha});
+            fills.push_back({clip,fill.alpha,fill.luminosity});
         }
-        if(fills.size()==1u && fills.front().opacity==1.0)return fills.front().clip;
+        if(!luminosity && fills.size()==1u && fills.front().opacity==1.0)return fills.front().clip;
         Obj knockout=group.getKey("/K");
-        return target.append_clip({{},0u,0u,std::move(fills),!knockout.isNull() && knockout.getBoolValue()});
+        return target.append_clip({{},0u,0u,std::move(fills),!knockout.isNull() && knockout.getBoolValue(),
+                                   luminosity,backdrop_luminosity});
     }
 
     /* The SAME QPDF operator callbacks account for every original m:
@@ -1557,7 +1593,7 @@ private:
             current[0]==1.0 && current[1]==0.0 &&
             current[2]==0.0 && current[3]==-1.0 &&
             current[4]==0.0 && current[5]==600.0;
-        admit(in_alpha_group || y_inverse ||
+        admit(in_mask_group || y_inverse ||
               (current[0]>0.0 && current[3]>0.0 &&
                current[1]==0.0 && current[2]==0.0),
               QUANTAPDF_ERROR_UNSUPPORTED);
@@ -1647,14 +1683,14 @@ private:
     }
     admission& target;
     size_t& content_bytes;
-    bool in_alpha_group=false;
+    bool in_mask_group=false;
     clip_identity clip_active=0u,mask_active=0u;
     bool clip_pending=false;
     quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     matrix current=identity;
     uint32_t fill_argb=UINT32_C(0xff000000);
     uint32_t stroke_argb=UINT32_C(0xff000000);
-    double stroke_width=1.0,stroke_miter=10.0,fill_alpha=1.0;
+    double stroke_width=1.0,stroke_miter=10.0,fill_alpha=1.0,fill_luminosity=0.0;
     int stroke_cap=0,stroke_join=0;
     bool stroke_default_dash=true,stroke_rgb_exact=true;
     bool saw_saved_scope=false;
@@ -2045,13 +2081,13 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
         for(size_t i=0u;i<count;++i) {
             if(needed[i]) {
                 const auto& definition=source.clips[i];
-                if(definition.other==0u && definition.group_fills.empty())
+                if(definition.other==0u && !definition.is_mask_group())
                     leaves[i]=static_cast<clip_identity>(++leaf_count);
-                intersections+=definition.parent!=0u || !definition.group_fills.empty();
+                intersections+=definition.parent!=0u || definition.is_mask_group();
             }
             if(observed[i])states[i]=static_cast<quantapdf_composer_graphics_state_id>(++state_count);
         }
-        if(leaf_count==0u)return ir;
+        if(state_count==0u)return ir;
         admit(intersections<=std::numeric_limits<clip_identity>::max()-leaf_count,
               QUANTAPDF_ERROR_UNSUPPORTED);
         ir.resources.graphics_states=static_cast<quantapdf_composer_graphics_state *>(
@@ -2069,13 +2105,23 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
             const auto& definition=source.clips[i];
             if(leaves[i]!=0u)copy_source_clip(ir.resources.clips[leaves[i]-1u],definition.path);
             const auto parent=definition.parent;
-            if(!definition.group_fills.empty()) {
+            if(definition.is_mask_group()) {
                 auto& root=ir.resources.clips[next_node++];
-                root.kind=QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL;
-                root.member_count=definition.group_fills.size();
-                root.members=static_cast<clip_identity *>(QP_SOURCE_C_MALLOC(root.member_count*sizeof(*root.members)));
-                admit(root.members!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                root.kind=QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL;
+                root.mask_mode=definition.luminosity_mask?QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY:
+                    QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
+                root.backdrop_luminosity=definition.backdrop_luminosity;
                 root.knockout=definition.knockout;
+                root.member_count=definition.group_fills.size();
+                if(root.member_count!=0u) {
+                    root.members=static_cast<clip_identity *>(QP_SOURCE_C_MALLOC(root.member_count*sizeof(*root.members)));
+                    admit(root.members!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                    if(definition.luminosity_mask) {
+                        root.member_luminosities=static_cast<double *>(
+                            QP_SOURCE_C_MALLOC(root.member_count*sizeof(*root.member_luminosities)));
+                        admit(root.member_luminosities!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                    }
+                }
                 if(std::any_of(definition.group_fills.begin(),definition.group_fills.end(),
                                [](const auto& fill){return fill.opacity!=1.0;})) {
                     root.member_opacities=static_cast<double *>(
@@ -2086,6 +2132,7 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
                     const auto& fill=definition.group_fills[k];
                     root.members[k]=roots[fill.clip-1u];
                     if(root.member_opacities!=nullptr)root.member_opacities[k]=fill.opacity;
+                    if(root.member_luminosities!=nullptr)root.member_luminosities[k]=fill.luminosity;
                 }
                 roots[i]=static_cast<clip_identity>(next_node);
             } else if(parent==0u)roots[i]=leaves[i];

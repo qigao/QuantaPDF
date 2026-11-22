@@ -91,6 +91,12 @@ inline constexpr const char *alpha_knockout_form =
     "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
     " /Group << /S /Transparency /I true /K true >> >>";
 
+inline std::string luminosity_form(const char *space,bool knockout=false)
+{
+    return std::string("<< /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 .5 0] "
+        "/Group << /S /Transparency /CS ")+space+(knockout?" /K true":"")+" >> >>";
+}
+
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
     const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>")
 {

@@ -4973,20 +4973,34 @@ static int content_stream_source_contracts(
     return EXIT_SUCCESS;
 }
 
-static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& defaults)
+static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults)
 {
     using namespace native_graphics_fixture;
-    const struct { const char *content; size_t nodes; bool partial,knockout; } cases[]={
+    const struct {
+        const char *content;
+        size_t nodes;
+        bool partial,knockout;
+        const char *mask=nullptr;
+        const char *space="/DeviceGray";
+    } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
         {"/Precise gs 0 0 4 3 re f",6u,true,false},
         {"/Half gs 0 0 2 3 re f /Quarter gs 3 0 -1.5 3 re f*",8u,true,false},
         {"/Half gs 0 0 2 3 re f /Zero gs 3 0 -1.5 3 re f*",8u,true,true},
+        {"",1u,false,false,"<< /S /Luminosity /BC [.375] >>"},
+        {".123456789 .2 .9 rg /Precise gs 0 0 4 3 re f",6u,true,false,
+         "<< /S /Luminosity /BC [.2 .4 .1] >>","/DeviceRGB"},
+        {".75 g /Half gs 0 0 2 3 re f /Zero gs 3 0 -1.5 3 re f*",8u,true,true,
+         "<< /S /Luminosity /BC [.125] >>"},
     };
     for(const auto& test:cases) {
+        const bool luminosity=test.mask!=nullptr;
+        const auto form=luminosity?luminosity_form(test.space,test.knockout):
+            test.knockout?alpha_knockout_form:alpha_form;
         const auto sample=create_alpha_group(
-            "q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",test.content,
-            test.knockout?alpha_knockout_form:alpha_form);
+            test.nodes==1u?"/Alpha gs 0 0 12 4 re f":"q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",
+            test.content,form.c_str(),luminosity?test.mask:"<< /S /Alpha /TR /Identity >>");
         auto caps=defaults;
         caps.max_content_bytes=sample.decoded_bytes;
         quantapdf_qpdf_document *document=nullptr;
@@ -5007,15 +5021,17 @@ static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& default
         CHECK(status==QUANTAPDF_OK && allocations>0u && ir.operation_count==1u &&
               ir.resources.clip_count==expected_nodes && ir.resources.graphics_state_count==1u &&
               ir.resources.graphics_states[0].clip_id==expected_nodes);
-        if(test.nodes>5u) {
-            const auto alpha_group=[](const quantapdf_ir& source) {
+        if(test.nodes>5u || luminosity) {
+            const auto mask_group=[](const quantapdf_ir& source) {
                 const auto *begin=source.resources.clips;
                 return std::find_if(begin,begin+source.resources.clip_count,[](const auto& clip) {
-                    return clip.kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL;
+                    return clip.kind==QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL;
                 });
             };
-            const auto *group=alpha_group(ir);
+            const auto *group=mask_group(ir);
             CHECK(group!=ir.resources.clips+ir.resources.clip_count &&
+                  group->mask_mode==(luminosity?QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY:
+                                               QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA) &&
                   (group->member_opacities!=nullptr)==test.partial && bool(group->knockout)==test.knockout);
             unsigned char *encoded=nullptr;
             size_t encoded_size=0u;
@@ -5031,12 +5047,16 @@ static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& default
                 std::fprintf(stderr,"alpha group roundtrip Source status=%d\n",int(reopened_status));
             CHECK(reopened_status==QUANTAPDF_OK);
             CHECK(copy.operation_count==2u);
-            const auto *copied_group=alpha_group(copy);
+            const auto *copied_group=mask_group(copy);
             CHECK(copied_group!=copy.resources.clips+copy.resources.clip_count &&
                   copied_group->member_count==group->member_count && copied_group->knockout==group->knockout &&
-                  (copied_group->member_opacities!=nullptr)==test.partial);
-            if(test.partial)for(size_t branch=0u;branch<group->member_count;++branch)
-                CHECK(copied_group->member_opacities[branch]==group->member_opacities[branch]);
+                  (copied_group->member_opacities!=nullptr)==test.partial &&
+                  copied_group->mask_mode==group->mask_mode &&
+                  copied_group->backdrop_luminosity==group->backdrop_luminosity);
+            for(size_t branch=0u;branch<group->member_count;++branch) {
+                if(test.partial)CHECK(copied_group->member_opacities[branch]==group->member_opacities[branch]);
+                if(luminosity)CHECK(copied_group->member_luminosities[branch]==group->member_luminosities[branch]);
+            }
             const auto render=[](const quantapdf_ir& source,quantapdf_ir_raster_image& image) {
                 const quantapdf_ir_raster_scoped_mixed_v5_limits budget={300u,2u,512u,1000000u,16u,300u};
                 quantapdf_native_page_device device{};
@@ -5067,7 +5087,7 @@ static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& default
 static int graphics_state_source_contracts(
     const quantapdf_qpdf_page_limits& defaults)
 {
-    CHECK(alpha_group_source_contract(defaults)==EXIT_SUCCESS);
+    CHECK(mask_group_source_contract(defaults)==EXIT_SUCCESS);
     size_t stack_faults=0u,publication_faults=0u,quota_checks=0u;
     for(bool clipped:{false,true})for(bool encrypted:{false,true})for(int kind:{0,1,2,3}) {
         const bool images=kind==1;

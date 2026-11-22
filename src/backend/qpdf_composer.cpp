@@ -1392,7 +1392,8 @@ QPDFObjectHandle make_transparency_group(
     std::string const& content,
     QPDFObjectHandle resources,
     quantapdf_composer_page_state const& page,
-    bool knockout = false)
+    bool knockout = false,
+    const char* color_space = "/DeviceRGB")
 {
     auto stream = pdf.newStream(content);
     auto dictionary = stream.getDict();
@@ -1414,7 +1415,7 @@ QPDFObjectHandle make_transparency_group(
     dictionary.replaceKey("/Resources", resources);
 
     group.replaceKey("/S", QPDFObjectHandle::newName("/Transparency"));
-    group.replaceKey("/CS", QPDFObjectHandle::newName("/DeviceRGB"));
+    group.replaceKey("/CS", QPDFObjectHandle::newName(color_space));
     group.replaceKey("/I", QPDFObjectHandle::newBool(true));
     group.replaceKey("/K", QPDFObjectHandle::newBool(knockout));
     dictionary.replaceKey("/Group", group);
@@ -1675,7 +1676,7 @@ void append_clip_content_bounded(
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip,
-    quantapdf_composer_clip_state const*& alpha_group,
+    quantapdf_composer_clip_state const*& mask_group,
     std::size_t depth,
     std::size_t& visits)
 {
@@ -1687,23 +1688,23 @@ void append_clip_content_bounded(
             append_path_clip_content(*content, page, clip);
         return;
     }
-    if (clip.kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) {
-        if (alpha_group != nullptr && alpha_group != &clip)
-            throw std::logic_error("multiple alpha groups on one graphics state");
-        alpha_group = &clip;
+    if (clip.kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL) {
+        if (mask_group != nullptr && mask_group != &clip)
+            throw std::logic_error("multiple mask groups on one graphics state");
+        mask_group = &clip;
         return;
     }
     if (clip.kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
         throw std::logic_error("unknown clip resource kind");
 
-    // All leaves outside the alpha group are ordinary successive W/W* clips.
+    // All leaves outside the mask group are ordinary successive W/W* clips.
     for (size_t i = 0u; i < clip.member_count; ++i) {
         auto const id = clip.members[i];
         if (id == 0u || id > ir->resources.clip_count)
             throw std::logic_error("compound clip member missing");
         auto const& member = ir->resources.clips[id - 1u];
         append_clip_content_bounded(
-            content, ir, page, member, alpha_group, depth + 1u, visits);
+            content, ir, page, member, mask_group, depth + 1u, visits);
     }
 }
 
@@ -1714,12 +1715,20 @@ quantapdf_composer_clip_state const* append_clip_content(
     quantapdf_composer_clip_state const& clip)
 {
     std::size_t visits = 0u;
-    quantapdf_composer_clip_state const* alpha_group = nullptr;
-    append_clip_content_bounded(content, ir, page, clip, alpha_group, 0u, visits);
-    return alpha_group;
+    quantapdf_composer_clip_state const* mask_group = nullptr;
+    append_clip_content_bounded(content, ir, page, clip, mask_group, 0u, visits);
+    return mask_group;
 }
 
-QPDFObjectHandle make_clip_alpha_group(
+QPDFObjectHandle mask_unit_number(double value)
+{
+    // PDF numbers have no exponent syntax. Preserve the source double in fixed form.
+    const int precision = value == 0.0 ? 0 : std::numeric_limits<double>::max_digits10 +
+        static_cast<int>(std::ceil(-std::log10(value)));
+    return QPDFObjectHandle::newReal(value, precision);
+}
+
+QPDFObjectHandle make_clip_mask_group(
     QPDF& pdf,
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
@@ -1730,27 +1739,29 @@ QPDFObjectHandle make_clip_alpha_group(
         number(page.height_points) + " re f Q\n";
     auto resources = QPDFObjectHandle::newDictionary();
     auto states = QPDFObjectHandle::newDictionary();
+    const bool luminosity = group.mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
     for (std::size_t i = 0u; i < group.member_count; ++i) {
         content += "q\n";
         if (group.member_opacities != nullptr && group.member_opacities[i] != 1.0) {
             const double opacity = group.member_opacities[i];
             const std::string name = "/A" + std::to_string(i);
             auto state = QPDFObjectHandle::newDictionary();
-            // PDF numbers have no exponent syntax. Preserve the source double in fixed form.
-            const int precision = opacity == 0.0 ? 0 : std::numeric_limits<double>::max_digits10 +
-                static_cast<int>(std::ceil(-std::log10(opacity)));
-            state.replaceKey("/ca", QPDFObjectHandle::newReal(opacity, precision));
+            state.replaceKey("/ca", mask_unit_number(opacity));
             states.replaceKey(name, state);
             content += name + " gs\n";
         }
         const auto& branch = ir->resources.clips[group.members[i] - 1u];
         if (append_clip_content(&content, ir, page, branch) != nullptr)
-            throw std::logic_error("nested alpha groups");
+            throw std::logic_error("nested mask groups");
+        if (luminosity)
+            content += mask_unit_number(group.member_luminosities[i]).unparse() + " g\n";
         content += fill;
     }
     if (!states.getKeys().empty())
         resources.replaceKey("/ExtGState", states);
-    return make_transparency_group(pdf, content, resources, page, group.knockout != 0);
+    // DeviceGray preserves the projected luminosity of every branch and the backdrop.
+    return make_transparency_group(pdf, content, resources, page, group.knockout != 0,
+        luminosity ? "/DeviceGray" : "/DeviceRGB");
 }
 
 std::string page_content(
@@ -2432,9 +2443,9 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 auto const& state =
                     ir->resources.graphics_states[id - 1u];
                 const auto& page = ir->pages[page_index];
-                const auto* alpha_group = state.clip_id == 0u ? nullptr :
+                const auto* mask_group = state.clip_id == 0u ? nullptr :
                     append_clip_content(nullptr, ir, page, ir->resources.clips[state.clip_id - 1u]);
-                auto& object = state.soft_mask_id != 0u || alpha_group != nullptr
+                auto& object = state.soft_mask_id != 0u || mask_group != nullptr
                     ? page_masked_graphics_state_objects[id - 1u]
                     : graphics_state_objects[id - 1u];
                 if (!object.has_value()) {
@@ -2451,13 +2462,19 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                                 : "/Luminosity"));
                         soft_mask.replaceKey(
                             "/G", ensure_soft_mask_group(state.soft_mask_id));
-                        if (alpha_group != nullptr)
+                        if (mask_group != nullptr)
                             throw std::logic_error("multiple masks on one graphics state");
                         object->replaceKey("/SMask", soft_mask);
-                    } else if (alpha_group != nullptr) {
+                    } else if (mask_group != nullptr) {
                         auto soft_mask = QPDFObjectHandle::newDictionary();
-                        soft_mask.replaceKey("/S", QPDFObjectHandle::newName("/Alpha"));
-                        soft_mask.replaceKey("/G", make_clip_alpha_group(pdf, ir, page, *alpha_group));
+                        const bool luminosity = mask_group->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+                        soft_mask.replaceKey("/S", QPDFObjectHandle::newName(luminosity ? "/Luminosity" : "/Alpha"));
+                        if (luminosity && mask_group->backdrop_luminosity != 0.0) {
+                            auto backdrop = QPDFObjectHandle::newArray();
+                            backdrop.appendItem(mask_unit_number(mask_group->backdrop_luminosity));
+                            soft_mask.replaceKey("/BC", backdrop);
+                        }
+                        soft_mask.replaceKey("/G", make_clip_mask_group(pdf, ir, page, *mask_group));
                         object->replaceKey("/SMask", soft_mask);
                     }
                 }
