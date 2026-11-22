@@ -84,22 +84,12 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
     const size_t mask_limit = (max_pixel_bytes - limits.pixels) / 4u - count;
     const size_t color_bytes = source.bytes.size() + colors.palette.size();
     quantapdf::detail::image_alpha_plane alpha;
-    std::vector<double> matte;
+    std::optional<std::array<double, 4u>> matte;
     std::vector<unsigned> color_key;
     if (soft_mask) {
-        alpha = quantapdf::detail::qpdf_read_soft_mask(soft, mask_limit, color_bytes, true);
-        Obj value = soft.getDict().getKey("/Matte");
-        if (!value.isNull()) {
-            require(source.channels != 4u, QUANTAPDF_ERROR_UNSUPPORTED);
-            require(!colors.indexed() && value.isArray() &&
-                value.getArrayNItems() == static_cast<int>(source.channels) &&
-                alpha.width == source.width && alpha.height == source.height);
-            for (unsigned c = 0; c < source.channels; ++c) {
-                const double component = number(value.getArrayItem(static_cast<int>(c)));
-                require(component >= 0.0 && component <= 1.0);
-                matte.push_back(component);
-            }
-        }
+        auto decoded = quantapdf::detail::qpdf_read_soft_mask(soft, colors, mask_limit);
+        alpha = std::move(decoded.alpha);
+        matte = decoded.matte;
     } else if (mask.isStream()) {
         alpha = quantapdf::detail::qpdf_read_stencil(mask, mask_limit, color_bytes);
     } else {
@@ -110,7 +100,6 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
     bool has_alpha = false;
     for (size_t y = 0; y < source.height; ++y) {
         for (size_t x = 0; x < source.width; ++x) {
-            const auto rgb = colors.rgb(x, y);
             double a = 1.0;
             if (alpha.width != 0u) {
                 const auto sample = qp_sample_image_mask(alpha.bytes.data(),
@@ -126,13 +115,14 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
             const unsigned final_alpha = static_cast<unsigned>(a * opacity * 255.0 + 0.5);
             has_alpha = has_alpha || final_alpha != 255u;
             const size_t offset = (y * source.width + x)*4u;
-            for (unsigned c = 0; c < 3; ++c) {
-                if (matte.empty()) result.pixels[offset+c] = static_cast<unsigned char>(rgb[c]*a*opacity+0.5);
-                else {
-                    const double m = matte[source.channels == 1 ? 0u : c];
-                    const double premult = rgb[c]/255.0 - m*(1.0-a);
-                    result.pixels[offset+c] = static_cast<unsigned char>(std::clamp(premult, 0.0, a)*255.0*opacity+0.5);
-                }
+            if (matte) {
+                const auto rgb = quantapdf::detail::image_unblend_matte(source, *matte, x, y, a);
+                for (unsigned c = 0; c < 3; ++c)
+                    result.pixels[offset+c] = static_cast<unsigned char>(rgb[c] * a * opacity * 255.0 + 0.5);
+            } else {
+                const auto rgb = colors.rgb(x, y);
+                for (unsigned c = 0; c < 3; ++c)
+                    result.pixels[offset+c] = static_cast<unsigned char>(rgb[c] * a * opacity + 0.5);
             }
             result.pixels[offset+3u] = static_cast<unsigned char>(final_alpha);
         }

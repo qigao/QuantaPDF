@@ -1,5 +1,6 @@
 #include "qpdf_image_stream.h"
 #include "qpdf_composer.h"
+#include "render/ir_image_sampling.h"
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/Pipeline.hh>
@@ -467,7 +468,7 @@ image_alpha_plane qpdf_read_stencil(Obj mask, size_t pixel_limit, size_t color_b
     return alpha;
 }
 
-image_alpha_plane qpdf_read_soft_mask(Obj mask, size_t pixel_limit, size_t color_bytes, bool allow_matte)
+image_soft_mask qpdf_read_soft_mask(Obj mask, const image_colors& colors, size_t pixel_limit)
 {
     require(mask.isStream(), QUANTAPDF_ERROR_UNSUPPORTED);
     Obj dict = mask.getDict();
@@ -477,13 +478,29 @@ image_alpha_plane qpdf_read_soft_mask(Obj mask, size_t pixel_limit, size_t color
         dict.getKey("/ColorSpace").isNameAndEquals("/DeviceGray") &&
         (stencil.isNull() || (stencil.isBool() && !stencil.getBoolValue())) &&
         dict.getKey("/Mask").isNull() && dict.getKey("/SMask").isNull());
-    require(dict.getKey("/OC").isNull() && dict.getKey("/SMaskInData").isNull() &&
-        (allow_matte || dict.getKey("/Matte").isNull()),
+    require(dict.getKey("/OC").isNull() && dict.getKey("/SMaskInData").isNull(),
         QUANTAPDF_ERROR_UNSUPPORTED);
 
+    std::optional<std::array<double, 4u>> matte;
+    Obj value = dict.getKey("/Matte");
+    if (!value.isNull()) {
+        require(!colors.indexed(), QUANTAPDF_ERROR_UNSUPPORTED);
+        require(value.isArray() && value.getArrayNItems() == static_cast<int>(colors.samples.channels));
+        matte.emplace();
+        for (unsigned c = 0u; c < colors.samples.channels; ++c) {
+            Obj component = value.getArrayItem(static_cast<int>(c));
+            require(component.isNumber());
+            const auto number = component.getNumericValue();
+            require(number >= 0.0 && number <= 1.0);
+            (*matte)[c] = number;
+        }
+    }
+
+    const size_t color_bytes = colors.samples.bytes.size() + colors.palette.size();
     require(color_bytes <= image_work_limit, QUANTAPDF_ERROR_UNSUPPORTED);
     const size_t available_bytes = image_work_limit - color_bytes;
     const auto samples = read_image_samples(mask, 1u, false, std::min(pixel_limit, available_bytes));
+    require(!matte || (samples.width == colors.samples.width && samples.height == colors.samples.height));
     const bool direct = samples.decode[0] == 0.0 && samples.decode[1] == 1.0;
     const bool inverted = samples.decode[0] == 1.0 && samples.decode[1] == 0.0;
     const bool wide = samples.bits == 16u || (!direct && !inverted);
@@ -496,17 +513,37 @@ image_alpha_plane qpdf_read_soft_mask(Obj mask, size_t pixel_limit, size_t color
             if (wide) *destination++ = static_cast<unsigned char>(value >> 8u);
             *destination++ = static_cast<unsigned char>(value);
         }
-    return alpha;
+    return {std::move(alpha), matte};
+}
+
+std::array<double, 3u> image_unblend_matte(const image_samples& samples,
+    const std::array<double, 4u>& matte, size_t x, size_t y, double alpha)
+{
+    if (alpha == 0.0) return {}; // No original color can be recovered at zero opacity.
+    const auto unblend = [&](unsigned c) {
+        return std::clamp((samples.decoded(x, y, c) - (1.0 - alpha) * matte[c]) / alpha, 0.0, 1.0);
+    };
+    if (samples.channels == 1u) {
+        const double gray = unblend(0u);
+        return {gray, gray, gray};
+    }
+    if (samples.channels == 4u) {
+        const double black = unblend(3u);
+        return {cmyk_channel(unblend(0u), black, 1.0), cmyk_channel(unblend(1u), black, 1.0),
+            cmyk_channel(unblend(2u), black, 1.0)};
+    }
+    return {unblend(0u), unblend(1u), unblend(2u)};
 }
 
 namespace {
 
-device_image_samples normalize_device_samples(image_samples&& samples, image_alpha_plane alpha)
+device_image_samples normalize_device_samples(image_samples&& samples, image_alpha_plane alpha,
+    const std::optional<std::array<double, 4u>>& matte)
 {
     const bool cmyk = samples.channels == 4u;
     const int components = cmyk ? 3 : static_cast<int>(samples.channels);
-    bool identity = true;
-    bool wide = samples.bits == 16u;
+    bool identity = !matte;
+    bool wide = matte.has_value() || samples.bits == 16u;
     for (unsigned c = 0u; c < samples.channels; ++c) {
         const double low = samples.decode[2u * c], high = samples.decode[2u * c + 1u];
         const bool direct = low == 0.0 && high == 1.0;
@@ -533,13 +570,20 @@ device_image_samples normalize_device_samples(image_samples&& samples, image_alp
         destination = expanded.data();
     }
     const unsigned maximum = wide ? 65535u : 255u;
+    const bool wide_alpha = alpha.bits == 16u;
+    const double alpha_maximum = wide_alpha ? 65535.0 : 255.0;
     const auto write_sample = [&](unsigned value) {
         if (wide) *destination++ = static_cast<unsigned char>(value >> 8u);
         *destination++ = static_cast<unsigned char>(value);
     };
     for (size_t y = 0u; y < samples.height; ++y) {
         for (size_t x = 0u; x < samples.width; ++x) {
-            if (cmyk) {
+            if (matte) {
+                const double opacity = qp_mask_texel(alpha.bytes.data(), y * samples.width + x, wide_alpha) / alpha_maximum;
+                const auto rgb = image_unblend_matte(samples, *matte, x, y, opacity);
+                for (int c = 0; c < components; ++c)
+                    write_sample(static_cast<unsigned>(rgb[c] * maximum + 0.5));
+            } else if (cmyk) {
                 for (double value : samples.cmyk_rgb(x, y))
                     write_sample(static_cast<unsigned>(value * maximum + 0.5));
             } else {
@@ -557,10 +601,13 @@ device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj dict
 {
     const auto& samples = colors.samples;
     image_alpha_plane alpha;
+    std::optional<std::array<double, 4u>> matte;
     Obj soft = dict.getKey("/SMask"), mask = dict.getKey("/Mask");
     const size_t color_bytes = samples.bytes.size() + colors.palette.size();
     if (!soft.isNull()) {
-        alpha = qpdf_read_soft_mask(soft, mask_pixel_limit, color_bytes, false);
+        auto decoded = qpdf_read_soft_mask(soft, colors, mask_pixel_limit);
+        alpha = std::move(decoded.alpha);
+        matte = decoded.matte;
     } else if (mask.isStream()) {
         alpha = qpdf_read_stencil(mask, mask_pixel_limit, color_bytes);
     } else if (const auto key = qpdf_read_color_key(mask, samples); !key.empty()) {
@@ -574,7 +621,7 @@ device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj dict
             for (size_t x = 0u; x < samples.width; ++x)
                 alpha.bytes[y * samples.width + x] = image_sample_is_masked(samples, key, x, y) ? 0u : 255u;
     }
-    if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples), std::move(alpha));
+    if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples), std::move(alpha), matte);
 
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height * colors.palette_channels;
     require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size() - alpha.bytes.size(),

@@ -4,6 +4,7 @@
 #include <quantapdf/quantapdf.h>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <array>
+#include <optional>
 #include <vector>
 
 namespace quantapdf::detail {
@@ -51,7 +52,14 @@ struct image_alpha_plane {
 };
 
 image_alpha_plane qpdf_read_stencil(QPDFObjectHandle mask, size_t pixel_limit, size_t color_bytes);
-image_alpha_plane qpdf_read_soft_mask(QPDFObjectHandle mask, size_t pixel_limit, size_t color_bytes, bool allow_matte);
+struct image_soft_mask {
+    image_alpha_plane alpha;
+    std::optional<std::array<double, 4u>> matte;
+};
+
+image_soft_mask qpdf_read_soft_mask(QPDFObjectHandle mask, const image_colors& colors, size_t pixel_limit);
+std::array<double, 3u> image_unblend_matte(const image_samples& samples,
+    const std::array<double, 4u>& matte, size_t x, size_t y, double alpha);
 
 struct device_image_samples {
     std::vector<unsigned char> pixels;

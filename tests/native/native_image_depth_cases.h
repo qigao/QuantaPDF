@@ -357,6 +357,53 @@ static int native_image_depth_cases(const std::string& filename)
             {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
     }
 
+    // Both texels were preblended with white. Interpolation must see the
+    // recovered red and blue, and the rotated page must keep alpha aligned.
+    specimen matte_base;
+    matte_base.width = 2u;
+    matte_base.height = 1u;
+    matte_base.channels = 3u;
+    matte_base.samples = {255u, 170u, 170u, 85u, 85u, 255u};
+    matte_base.interpolate = true;
+    matte_base.rotation = 90;
+    image_mask matte{2u, 1u, std::string("\xaa\xaa\x55\x55", 4u),
+        "/Matte [1 1 1] /Decode [1 0] /Interpolate true", true, 16u};
+    const std::vector<unsigned char> matte_page{85u,170u,0u, 64u,128u,64u, 0u,85u,170u};
+    const std::vector<unsigned char> matte_texels{85u,0u,0u,85u, 0u,0u,170u,170u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, nullptr, &matte),
+        matte_page, 1u, 3u, QUANTAPDF_OK, &matte_texels, false, true) == EXIT_SUCCESS);
+
+    // Unblending RGB after the CMYK conversion would lose the red channel.
+    matte_base.width = 1u;
+    matte_base.channels = 4u;
+    matte_base.samples = {170u, 0u, 0u, 170u};
+    matte_base.interpolate = false;
+    matte_base.rotation = 0;
+    matte = {1u, 1u, std::string(1u, '\x55'), "/Matte [1 0 0 1]", false, 8u};
+    const std::vector<unsigned char> unmatted_white{85u,85u,85u,85u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, nullptr, &matte),
+        {85u,255u,85u, 85u,255u,85u, 85u,255u,85u}, 3u, 1u,
+        QUANTAPDF_OK, &unmatted_white, false, true) == EXIT_SUCCESS);
+
+    matte_base.width = 2u;
+    matte_base.channels = 1u;
+    matte_base.samples = {255u, 0u};
+    matte = {2u, 1u, std::string("\0\xff", 2u), "/Matte [1]", false, 8u};
+    const std::vector<unsigned char> matte_gray_texels{0u,0u,0u,0u, 0u,0u,0u,255u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, nullptr, &matte),
+        {0u,255u,0u, 0u,0u,0u, 0u,0u,0u}, 3u, 1u, QUANTAPDF_OK, &matte_gray_texels, false, true) == EXIT_SUCCESS);
+    for (const char *entries : {"/Matte []", "/Matte [/White]", "/Matte [1.25]", "/Matte 1"}) {
+        matte.entries = entries;
+        CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, nullptr, &matte),
+            {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    }
+    const image_mask short_matte{1u, 1u, std::string(1u, '\xff'), "/Matte [1]", false, 8u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, nullptr, &short_matte),
+        {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    matte.entries = "/Matte [1]";
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, &gray_palette, &matte),
+        {}, 0u, 0u, QUANTAPDF_ERROR_UNSUPPORTED) == EXIT_SUCCESS);
+
     const auto render_only = [&](const std::string& original,
         unsigned width, unsigned height, const std::vector<unsigned char>& reference,
         quantapdf_status wanted = QUANTAPDF_OK) -> int {
@@ -375,10 +422,6 @@ static int native_image_depth_cases(const std::string& filename)
         CHECK(wanted == QUANTAPDF_OK ? matches(bitmap.get(), width, height, reference) : !bitmap);
         return EXIT_SUCCESS;
     };
-
-    soft.entries = "/Matte [1]";
-    CHECK(render_only(create(soft_base, fault::none, "[0 0 3 1]", paint, nullptr, &soft),
-        0u, 0u, {}, QUANTAPDF_ERROR_UNSUPPORTED) == EXIT_SUCCESS);
 
     specimen stencil;
     stencil.width = 2u;
@@ -410,7 +453,7 @@ static int native_image_depth_cases(const std::string& filename)
     stencil.stencil_entries = "/Decode [1 1]";
     CHECK(render_only(create(stencil), 0u, 0u, {}, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
 
-    CHECK(rendered == 88u && extracted == 88u && denied == 25u);
+    CHECK(rendered == 91u && extracted == 91u && denied == 31u);
     std::printf("Image depth: %zu full-page RGB matches, %zu extracted bitmap matches, %zu atomic errors\n",
         rendered, extracted, denied);
     return EXIT_SUCCESS;
