@@ -161,8 +161,10 @@ static inline int qp_prepared_resource_closure(
         } else if(c->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
                   c->kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) {
             if(c->commands!=NULL || c->command_count!=0u || c->members==NULL ||
-               c->member_count<2u ||
-               !qp_prepared_bytes(&u->retained_bytes,c->member_count,sizeof(*c->members)))
+               c->member_count<(c->kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL?1u:2u) ||
+               !qp_prepared_bytes(&u->retained_bytes,c->member_count,sizeof(*c->members)) ||
+               (c->member_opacities!=NULL &&
+                !qp_prepared_bytes(&u->retained_bytes,c->member_count,sizeof(*c->member_opacities))))
                 return 0;
             for(size_t j=0u;j<c->member_count;++j) {
                 const size_t id=(size_t)c->members[j];

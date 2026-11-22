@@ -1391,7 +1391,8 @@ QPDFObjectHandle make_transparency_group(
     QPDF& pdf,
     std::string const& content,
     QPDFObjectHandle resources,
-    quantapdf_composer_page_state const& page)
+    quantapdf_composer_page_state const& page,
+    bool knockout = false)
 {
     auto stream = pdf.newStream(content);
     auto dictionary = stream.getDict();
@@ -1415,7 +1416,7 @@ QPDFObjectHandle make_transparency_group(
     group.replaceKey("/S", QPDFObjectHandle::newName("/Transparency"));
     group.replaceKey("/CS", QPDFObjectHandle::newName("/DeviceRGB"));
     group.replaceKey("/I", QPDFObjectHandle::newBool(true));
-    group.replaceKey("/K", QPDFObjectHandle::newBool(false));
+    group.replaceKey("/K", QPDFObjectHandle::newBool(knockout));
     dictionary.replaceKey("/Group", group);
     return stream;
 }
@@ -1727,14 +1728,29 @@ QPDFObjectHandle make_clip_alpha_group(
     std::string content;
     const std::string fill = "0 0 " + number(page.width_points) + " " +
         number(page.height_points) + " re f Q\n";
+    auto resources = QPDFObjectHandle::newDictionary();
+    auto states = QPDFObjectHandle::newDictionary();
     for (std::size_t i = 0u; i < group.member_count; ++i) {
         content += "q\n";
+        if (group.member_opacities != nullptr && group.member_opacities[i] != 1.0) {
+            const double opacity = group.member_opacities[i];
+            const std::string name = "/A" + std::to_string(i);
+            auto state = QPDFObjectHandle::newDictionary();
+            // PDF numbers have no exponent syntax. Preserve the source double in fixed form.
+            const int precision = opacity == 0.0 ? 0 : std::numeric_limits<double>::max_digits10 +
+                static_cast<int>(std::ceil(-std::log10(opacity)));
+            state.replaceKey("/ca", QPDFObjectHandle::newReal(opacity, precision));
+            states.replaceKey(name, state);
+            content += name + " gs\n";
+        }
         const auto& branch = ir->resources.clips[group.members[i] - 1u];
         if (append_clip_content(&content, ir, page, branch) != nullptr)
             throw std::logic_error("nested alpha groups");
         content += fill;
     }
-    return make_transparency_group(pdf, content, QPDFObjectHandle::newDictionary(), page);
+    if (!states.getKeys().empty())
+        resources.replaceKey("/ExtGState", states);
+    return make_transparency_group(pdf, content, resources, page, group.knockout != 0);
 }
 
 std::string page_content(

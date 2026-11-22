@@ -81,6 +81,8 @@ typedef struct quantapdf_composer_clip_state {
     quantapdf_affine_transform transform;
     quantapdf_composer_clip_id *members;
     size_t member_count;
+    double *member_opacities; /* Absent when every alpha group member is opaque. */
+    int knockout;
 } quantapdf_composer_clip_state;
 
 typedef enum quantapdf_composer_paint_kind_internal {

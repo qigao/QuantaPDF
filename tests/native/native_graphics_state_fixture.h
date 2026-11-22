@@ -87,6 +87,10 @@ inline constexpr const char *alpha_form =
     "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
     " /Group << /S /Transparency /I true >> >>";
 
+inline constexpr const char *alpha_knockout_form =
+    "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
+    " /Group << /S /Transparency /I true /K true >> >>";
+
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
     const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>")
 {
@@ -102,7 +106,9 @@ inline original create_alpha_group(const std::string& page_content, const std::s
     for(const auto& key:entries.getKeys())form_dict.replaceKey(key,entries.getKey(key));
     auto mask=Object::parse(soft_mask);
     mask.replaceKey("/G",form);
-    auto states=Object::parse("<< /Alpha <<>> /Inert << /ca 1 >> /Clear << /SMask /None >> >>");
+    auto states=Object::parse("<< /Alpha <<>> /Inert << /ca 1 >> /Clear << /SMask /None >> "
+        "/Half << /ca .5 >> /Quarter << /ca .25 >> /Zero << /ca 0 >> "
+        "/StrokeOnly << /CA 1 >> /Precise << /ca .123456789 >> /Bad << /ca 1.1 >> >>");
     states.getKey("/Alpha").replaceKey("/SMask",mask);
     resources.replaceKey("/ExtGState",states);
     auto color=Object::parse(

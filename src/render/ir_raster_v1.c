@@ -22,11 +22,15 @@ typedef struct qp_edge {
     qp_point_d from, to;
 } qp_edge;
 
-/* A draw's ordinary Clip intersects this group's union. Each branch
- * already contains the Form BBox, fill path, and its local Clip leaves. */
+typedef struct qp_alpha_branch {
+    const uint64_t *clip_bits; /* Form BBox, fill path, and the fill's own Clip. */
+    double opacity;
+} qp_alpha_branch;
+
 typedef struct qp_alpha_group {
-    const uint64_t **branches;
+    const qp_alpha_branch *branches;
     size_t count;
+    int knockout;
 } qp_alpha_group;
 
 typedef struct qp_raster_draw {
@@ -671,8 +675,8 @@ static int qp_scene_clip_layout(const quantapdf_resource_registry *r,size_t leav
     if(branches!=0u) {
         if(nodes>(SIZE_MAX-bytes)/sizeof(qp_alpha_group))return 0;
         bytes+=nodes*sizeof(qp_alpha_group);
-        if(branches>(SIZE_MAX-bytes)/sizeof(const uint64_t *))return 0;
-        bytes+=branches*sizeof(const uint64_t *);
+        if(branches>(SIZE_MAX-bytes)/sizeof(qp_alpha_branch))return 0;
+        bytes+=branches*sizeof(qp_alpha_branch);
     }
     *group_branches=branches;
     *out_bytes=bytes;
@@ -809,6 +813,34 @@ static void qp_blend_pixel(unsigned char *dst, uint32_t argb, unsigned n)
                              QP_TOTAL_SAMPLES);
 }
 
+static void qp_blend_fractional_sample(unsigned char *dst, const uint64_t color[3],
+    uint64_t color_scale, double opacity, double covered)
+{
+    const double source = opacity * covered / QP_TOTAL_SAMPLES;
+    const double dest = (1.0 - source) * dst[3];
+    const double alpha = source * 255.0 + dest;
+    dst[3] = (unsigned char)(alpha + 0.5);
+    if (dst[3] == 0u) {
+        dst[0] = dst[1] = dst[2] = 0u;
+        return;
+    }
+    for (size_t c = 0u; c < 3u; ++c) {
+        const double src_color = (double)color[c] / (double)color_scale;
+        dst[c] = (unsigned char)((src_color * source * 255.0 + dst[c] * dest) / alpha + 0.5);
+    }
+}
+
+static void qp_blend_covered_pixel(unsigned char *dst, uint32_t argb, double covered)
+{
+    const unsigned samples = (unsigned)covered;
+    if (covered == samples) {
+        qp_blend_pixel(dst, argb, samples);
+    } else {
+        const uint64_t color[3] = {(argb >> 16u) & 255u, (argb >> 8u) & 255u, argb & 255u};
+        qp_blend_fractional_sample(dst, color, 1u, 1.0, covered);
+    }
+}
+
 static unsigned qp_image_sample(const unsigned char *pixel, size_t channel, int wide)
 {
     if (!wide) return pixel[channel];
@@ -816,10 +848,15 @@ static unsigned qp_image_sample(const unsigned char *pixel, size_t channel, int 
 }
 
 static void qp_blend_image_sample(unsigned char *dst, const uint64_t color[3],
-    uint64_t scale, unsigned covered)
+    uint64_t scale, double covered)
 {
-    const unsigned src_weight = covered * 255u;
-    const unsigned dst_weight = (QP_TOTAL_SAMPLES - covered) * dst[3];
+    const unsigned samples = (unsigned)covered;
+    if (covered != samples) {
+        qp_blend_fractional_sample(dst, color, scale, 1.0, covered);
+        return;
+    }
+    const unsigned src_weight = samples * 255u;
+    const unsigned dst_weight = (QP_TOTAL_SAMPLES - samples) * dst[3];
     const unsigned alpha = src_weight + dst_weight;
     const uint64_t denominator = alpha * scale;
     /* Even RAW16 bilinear color * coverage fits within 60 bits. */
@@ -835,10 +872,16 @@ static void qp_blend_image_sample(unsigned char *dst, const uint64_t color[3],
  * weight bits per axis, a 16-bit alpha up to ten. In both cases the
  * weighted color numerator (including coverage and dst alpha) fits uint64_t. */
 static void qp_blend_alpha_image_sample(unsigned char *dst, const uint64_t color[3],
-    qp_alpha_sample alpha, unsigned color_scale, unsigned covered)
+    qp_alpha_sample alpha, unsigned color_scale, double covered)
 {
     if (alpha.sum == 0u) return;
-    const uint64_t src_alpha = alpha.sum * covered;
+    const unsigned samples = (unsigned)covered;
+    if (covered != samples) {
+        const double opacity = (double)alpha.sum / (double)(alpha.weight * alpha.maximum);
+        qp_blend_fractional_sample(dst, color, alpha.sum * color_scale, opacity, covered);
+        return;
+    }
+    const uint64_t src_alpha = alpha.sum * samples;
     const uint64_t alpha_scale = QP_TOTAL_SAMPLES * alpha.weight * alpha.maximum;
     const uint64_t dst_weight = (alpha_scale - src_alpha) * dst[3];
     const uint64_t output_alpha = src_alpha * 255u + dst_weight;
@@ -849,14 +892,14 @@ static void qp_blend_alpha_image_sample(unsigned char *dst, const uint64_t color
     }
     const uint64_t denominator = output_alpha * color_scale;
     for (size_t c = 0u; c < 3u; ++c) {
-        const uint64_t numerator = color[c] * covered * 255u + dst[c] * dst_weight * color_scale;
+        const uint64_t numerator = color[c] * samples * 255u + dst[c] * dst_weight * color_scale;
         dst[c] = (unsigned char)(numerator / denominator +
             (numerator % denominator >= (denominator + 1u) / 2u));
     }
 }
 
 static void qp_blend_bilinear_image(unsigned char *dst,
-    const quantapdf_composer_image_state *image, double u, double v, unsigned covered)
+    const quantapdf_composer_image_state *image, double u, double v, double covered)
 {
     const int associated_alpha = image->has_alpha && image->mask_width == 0u;
     const unsigned one = associated_alpha ? QP_ALPHA_BILINEAR_ONE : QP_BILINEAR_ONE;
@@ -921,7 +964,7 @@ static void qp_blend_bilinear_image(unsigned char *dst,
 }
 
 static void qp_blend_nearest_image(unsigned char *dst,
-    const quantapdf_composer_image_state *image, double u, double v, unsigned covered)
+    const quantapdf_composer_image_state *image, double u, double v, double covered)
 {
     const size_t x = qp_nearest_texel(u, image->width);
     const size_t y = qp_nearest_texel(v, image->height);
@@ -950,7 +993,7 @@ static void qp_blend_nearest_image(unsigned char *dst,
         const unsigned char *src = image->data + offset;
         const uint32_t color = UINT32_C(0xff000000) | ((uint32_t)src[0] << 16u) |
             ((uint32_t)src[green] << 8u) | src[blue];
-        qp_blend_pixel(dst, color, covered);
+        qp_blend_covered_pixel(dst, color, covered);
     }
 }
 
@@ -995,13 +1038,15 @@ static int qp_scene_resources(const quantapdf_ir *ir,size_t *leaf_count)
        ((r->graphics_state_count==0u)!=(r->graphics_states==NULL)))return 0;
     for(size_t i=0u;i<r->clip_count;++i) {
         const quantapdf_composer_clip_state *clip=&r->clips[i];
+        const int group=clip->kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL;
         if(clip->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             if(clip->members!=NULL || clip->member_count!=0u)return 0;
             ++*leaf_count;
         } else if(clip->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
                   clip->kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) {
             const quantapdf_affine_transform *t=&clip->transform;
-            if(clip->commands!=NULL || clip->command_count!=0u || clip->members==NULL || clip->member_count<2u ||
+            if(clip->commands!=NULL || clip->command_count!=0u || clip->members==NULL ||
+               clip->member_count<(group?1u:2u) ||
                !((t->a==0 && t->b==0 && t->c==0 && t->d==0 && t->e==0 && t->f==0) ||
                  (t->a==1 && t->b==0 && t->c==0 && t->d==1 && t->e==0 && t->f==0)))return 0;
             for(size_t member=0u;member<clip->member_count;++member) {
@@ -1241,18 +1286,25 @@ static int qp_clip_sample(const uint64_t *clip_bits,unsigned clip_mask,
     return next==0?1:-1;
 }
 
-static int qp_alpha_group_sample(const qp_alpha_group *group,const qp_edge *edges,
+static double qp_alpha_group_sample(const qp_alpha_group *group,const qp_edge *edges,
     const qp_raster_draw *clips,size_t count,double x,double y,size_t *work,size_t cap)
 {
+    double alpha=0.0;
     for(size_t i=0u;i<group->count;++i) {
-        if(!qp_exact_charge(work,1u,cap))return -1;
-        const int branch=qp_clip_sample(group->branches[i],0u,edges,clips,count,x,y,work,cap);
-        if(branch!=0)return branch;
+        if(!qp_exact_charge(work,1u,cap))return -1.0;
+        // In a knockout group, the topmost shape replaces the underlying alpha.
+        const qp_alpha_branch *branch=&group->branches[group->knockout?group->count-1u-i:i];
+        const int inside=qp_clip_sample(branch->clip_bits,0u,edges,clips,count,x,y,work,cap);
+        if(inside<0)return -1.0;
+        if(inside==0)continue;
+        if(group->knockout)return branch->opacity;
+        if(branch->opacity==1.0)return 1.0;
+        alpha+=branch->opacity*(1.0-alpha);
     }
-    return 0;
+    return alpha;
 }
 
-static int qp_scene_clip_sample(const qp_raster_draw *draw,const qp_edge *edges,
+static double qp_scene_clip_sample(const qp_raster_draw *draw,const qp_edge *edges,
     const qp_raster_draw *clips,size_t count,double x,double y,size_t *work,size_t cap)
 {
     const int inside=qp_clip_sample(draw->clip_bits,draw->clip_mask,edges,clips,count,x,y,work,cap);
@@ -1949,11 +2001,11 @@ static quantapdf_status qp_geometry_compile(
         scene_masks=(uint64_t *)(clip_draws+clip_count);
         const size_t nodes=ir->resources.clip_count;
         command_pool=(quantapdf_composer_path_command *)(scene_masks+nodes*clip_words);
-        const uint64_t **branches=NULL;
+        qp_alpha_branch *branches=NULL;
         if(group_branches!=0u) {
             scene_groups=(qp_alpha_group *)(scene_masks+nodes*clip_words);
             command_pool=(quantapdf_composer_path_command *)(scene_groups+nodes);
-            branches=(const uint64_t **)(command_pool+snapshot_count);
+            branches=(qp_alpha_branch *)(command_pool+snapshot_count);
         }
         for(size_t node=0u;node<nodes;++node) {
             const quantapdf_composer_clip_state *clip=&ir->resources.clips[node];
@@ -1961,13 +2013,14 @@ static quantapdf_status qp_geometry_compile(
             if(clip->kind==QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
                 row[leaf/64u]|=UINT64_C(1)<<(leaf%64u);++leaf;
             } else if(clip->kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) {
-                scene_groups[node]=(qp_alpha_group){branches,clip->member_count};
+                scene_groups[node]=(qp_alpha_group){branches,clip->member_count,clip->knockout};
                 for(size_t m=0u;m<clip->member_count;++m) {
                     const size_t child=(size_t)clip->members[m]-1u;
                     if(scene_groups[child].count!=0u) {
                         status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
                     }
-                    *branches++=scene_masks+child*clip_words;
+                    *branches++=(qp_alpha_branch){scene_masks+child*clip_words,
+                        clip->member_opacities!=NULL?clip->member_opacities[m]:1.0};
                 }
             } else for(size_t m=0u;m<clip->member_count;++m) {
                 const size_t child=(size_t)clip->members[m]-1u;
@@ -2324,7 +2377,7 @@ static quantapdf_status qp_geometry_sample(
                 status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
             }
             for(y=box.y0;y<box.y1;++y)for(x=box.x0;x<box.x1;++x) {
-                unsigned covered=0u;
+                double covered=0.0;
                 for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
                     const double px=(double)x+((double)sx+0.5)/4.0;
                     const double py=(double)y+((double)sy+0.5)/4.0;
@@ -2334,10 +2387,10 @@ static quantapdf_status qp_geometry_sample(
                     if(plan!=NULL && (x*4u+sx>=plan->sample_width ||
                                       y*4u+sy>=plan->sample_height))continue;
                     if(!qp_inside(g->edges,draw,px,py))continue;
-                    const int inside=qp_scene_clip_sample(draw,g->edges,clip_draws,clip_count,px,py,
+                    const double inside=qp_scene_clip_sample(draw,g->edges,clip_draws,clip_count,px,py,
                         &total_checks,limits->max_sample_tests);
                     if(inside<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
-                    covered+=(unsigned)inside;
+                    covered+=inside;
                 }
                 if(covered!=0u) {
                     const quantapdf_composer_image_state *image=&draw->image;
@@ -2373,7 +2426,7 @@ static quantapdf_status qp_geometry_sample(
         }
         if(exact_texample || (ordered_scene && draw->original_outline)) {
             for(y=0u;y<height;++y)for(x=0u;x<width;++x) {
-                unsigned covered=0u;
+                double covered=0.0;
                 uint16_t mask=exact_masks[(ordered_scene?0u:i)*pixels_count+y*width+x];
                 if((draw->clip_bits!=NULL || draw->clip_mask!=0u) && mask!=0u) {
                     /* Intersect the genuine glyph and frozen Clip at each
@@ -2406,13 +2459,14 @@ static quantapdf_status qp_geometry_sample(
                     if((mask&bit)==0u)continue;
                     const double px=(double)x+((double)(k%4u)+0.5)/4.0;
                     const double py=(double)y+((double)(k/4u)+0.5)/4.0;
-                    const int inside=qp_alpha_group_sample(draw->alpha_group,g->edges,clip_draws,
+                    const double inside=qp_alpha_group_sample(draw->alpha_group,g->edges,clip_draws,
                         clip_count,px,py,&total_checks,limits->max_sample_tests);
                     if(inside<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
-                    if(inside==0)mask=(uint16_t)(mask&~bit);
+                    covered+=inside;
+                } else {
+                    for(unsigned k=0u;k<16u;++k)covered+=(unsigned)((mask>>k)&1u);
                 }
-                for(unsigned k=0u;k<16u;++k)covered+=(unsigned)((mask>>k)&1u);
-                qp_blend_pixel(pixels+4u*(y*width+x),draw->color,covered);
+                qp_blend_covered_pixel(pixels+4u*(y*width+x),draw->color,covered);
             }
             continue;
         }
@@ -2446,7 +2500,8 @@ static quantapdf_status qp_geometry_sample(
         }
         for (y = draw_box.y0; y < draw_box.y1; ++y) {
             for (x = draw_box.x0; x < draw_box.x1; ++x) {
-                unsigned sx, sy, covered = 0u;
+                unsigned sx, sy;
+                double covered = 0.0;
                 size_t candidates[256], candidate_count=0u;
                 if(bounded_curved_stroke) {
                     /* Find the only segments that can cover this
@@ -2494,9 +2549,11 @@ static quantapdf_status qp_geometry_sample(
                              qp_stroke_inside(g->edges,draw,px,py) :
                              qp_inside(g->edges,draw,px,py));
                         if(ordered_scene && visible) {
-                            visible=qp_scene_clip_sample(draw,g->edges,clip_draws,clip_count,px,py,
+                            const double inside=qp_scene_clip_sample(draw,g->edges,clip_draws,clip_count,px,py,
                                 &total_checks,limits->max_sample_tests);
-                            if(visible<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
+                            if(inside<0) {status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;}
+                            covered+=inside;
+                            continue;
                         } else if(!ordered_scene) {
                             for(ci=0u;visible && ci<clip_count;++ci)
                                 visible=qp_inside(g->edges,&clip_draws[ci],px,py);
@@ -2504,8 +2561,8 @@ static quantapdf_status qp_geometry_sample(
                         covered += (unsigned)visible;
                     }
                 }
-                qp_blend_pixel(pixels + 4u * (y * width + x),
-                               draw->color, covered);
+                qp_blend_covered_pixel(pixels + 4u * (y * width + x),
+                                       draw->color, covered);
             }
         }
     }

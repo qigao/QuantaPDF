@@ -207,6 +207,11 @@ quantapdf_status quantapdf_validate_ir(
     }
     for (i = 0; i < r->clip_count; ++i) {
         const quantapdf_composer_clip_state *v = &r->clips[i];
+        VALUE(v->kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL ?
+            ((v->knockout == 0 || v->knockout == 1) &&
+             (v->member_opacities == NULL ||
+              array_valid(v->member_opacities, v->member_count, sizeof(*v->member_opacities)))) :
+            (v->knockout == 0 && v->member_opacities == NULL), QUANTAPDF_VALIDATION_CLIP, i);
         if (v->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             VALUE(quantapdf_validation_path_valid(v->commands, v->command_count) &&
                 transform_valid(v->transform) && v->fill_rule >= QUANTAPDF_COMPOSER_FILL_NONZERO &&
@@ -219,7 +224,9 @@ quantapdf_status quantapdf_validate_ir(
             for (j = 0; j < v->member_count; ++j) {
                 size_t id = v->members[j];
                 REF(required_id(id, r->clip_count), QUANTAPDF_VALIDATION_CLIP, i, id);
-                /* Validate referenced paths and compound nodes below. */
+                if (v->member_opacities != NULL)
+                    VALUE(v->member_opacities[j] >= 0.0 && v->member_opacities[j] <= 1.0,
+                          QUANTAPDF_VALIDATION_CLIP, i);
             }
         }
     }

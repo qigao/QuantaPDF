@@ -103,6 +103,43 @@ static int alpha_group_cases(const std::string& filename)
         }
     }
 
+    for(bool knockout:{false,true}) {
+        const auto partial=create_alpha_group(
+            "0 1 0 rg 0 0 12 4 re f q 0.75 0 3 3.25 re W n /Alpha gs "
+            "0 0 1 rg 0 1 12 3 re f q 12 0 0 1 0 0 cm /Plain Do Q Q",
+            "q /Half gs 0 0 2 3 re W n /StrokeOnly gs 0 0 3 4 re f Q "
+            "q /Quarter gs 1.25 0 2 2.5 re f* Q "
+            "q /Zero gs 1.5 0 0.5 1 re f Q "
+            "3 2 1 1 re f", knockout?alpha_knockout_form:alpha_form);
+        for(unsigned dpi:{72u,144u}) {
+            std::vector<unsigned char> pixels;
+            CHECK(render(partial,dpi,pixels)==EXIT_SUCCESS);
+            const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+            for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+                unsigned blue=0u,yellow=0u;
+                for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                    const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                    if(px<0.75 || px>=3.75 || py>=2.5)continue;
+                    const bool first=px<2.5;
+                    const bool second=px>=1.75;
+                    const bool zero=px>=2.0 && px<2.5 && py<1.0;
+                    const bool opaque=px>=3.5 && py>=2.0;
+                    unsigned opacity;
+                    if(opaque)opacity=8u;
+                    else if(knockout)opacity=zero?0u:second?2u:first?4u:0u;
+                    else opacity=first?(second?5u:4u):second?2u:0u;
+                    if(py>=1.0)blue+=opacity;
+                    else yellow+=opacity;
+                }
+                const size_t index=(y*w+x)*3u;
+                CHECK(pixels[index]==(255u*yellow+64u)/128u);
+                CHECK(pixels[index+1u]==(255u*(128u-blue)+64u)/128u);
+                CHECK(pixels[index+2u]==(255u*blue+64u)/128u);
+            }
+        }
+    }
+
     // A real outlined glyph: use an independently authored Clip as the
     // expected geometry, and require both ink and a measurable mask effect.
     const auto text=create_alpha_group(
@@ -122,6 +159,13 @@ static int alpha_group_cases(const std::string& filename)
         "BT /F 4 Tf /Alpha gs 1 1 Td <002d> Tj ET",
         "0 0 2 3 re f 3 0 -1.5 3 re f*");
     CHECK(render(multiple_text,144u,actual)==EXIT_SUCCESS && actual==reference);
+    const auto partial_text=create_alpha_group(
+        "BT /F 4 Tf /Alpha gs 1 1 Td <002d> Tj ET","/Half gs 0 0 3 2.5 re f");
+    CHECK(render(partial_text,144u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const unsigned glyph_samples=((255u-reference[i])*16u+127u)/255u;
+        CHECK(actual[i]==((32u-glyph_samples)*255u+16u)/32u);
+    }
 
     std::string many_fills;
     for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
@@ -141,7 +185,9 @@ static int alpha_group_cases(const std::string& filename)
 
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",""),72u,actual)==EXIT_SUCCESS);
     CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==255u;}));
-    for(const char *unsupported : {"/Alpha gs", "0 0 1 1 re S"}) {
+    CHECK(render(create_alpha_group("/Half gs 0 0 12 4 re f",group),
+        72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    for(const char *unsupported : {"/Alpha gs", "/Bad gs 0 0 1 1 re f", "0 0 1 1 re S"}) {
         CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",unsupported),
             72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }
