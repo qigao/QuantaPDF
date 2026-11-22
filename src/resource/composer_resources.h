@@ -54,7 +54,7 @@ typedef struct quantapdf_composer_font_state {
 } quantapdf_composer_font_state;
 
 typedef struct quantapdf_composer_graphics_state {
-    float fill_alpha;
+    double fill_alpha;
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
     quantapdf_composer_clip_id clip_id;

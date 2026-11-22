@@ -167,7 +167,8 @@ inline constexpr const char* calculator_stitch_mask =
 
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
     const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>",
-    bool cyclic_transfer=false,const std::vector<stream_transfer_fixture>& streams={})
+    bool cyclic_transfer=false,const std::vector<stream_transfer_fixture>& streams={},
+    unsigned char image_opacity=255u)
 {
     auto pdf=QPDF::create();
     const auto font_fixture=native_ttf_fixture();
@@ -206,7 +207,7 @@ inline original create_alpha_group(const std::string& page_content, const std::s
         image.getDict().replaceKey(key,color.getKey(key));
         masked_image.getDict().replaceKey(key,color.getKey(key));
     }
-    auto opacity=pdf->newStream(std::string(1u,'\xff'));
+    auto opacity=pdf->newStream(std::string(1u,static_cast<char>(image_opacity)));
     auto gray=Object::parse(
         "<< /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray >>");
     for(const auto& key:gray.getKeys())opacity.getDict().replaceKey(key,gray.getKey(key));

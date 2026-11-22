@@ -196,6 +196,19 @@ static int alpha_group_cases(const std::string& filename)
     CHECK(actual==reference && actual!=unmasked &&
           std::any_of(actual.begin(),actual.end(),[](unsigned char v){return v!=255u;}));
 
+    const auto overlapping_glyphs=create_alpha_group(
+        "/Half gs BT /F 4 Tf /StrokeOnly gs 1 1 Td [<002d> 713 <002d>] TJ ET","");
+    CHECK(render(overlapping_glyphs,144u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const unsigned glyph_samples=((255u-unmasked[i])*16u+127u)/255u;
+        CHECK(actual[i]==((32u-glyph_samples)*255u+16u)/32u);
+    }
+    for(const char *shows : {"<002d> Tj /Inert gs <002d> Tj","/Inert gs <002d> Tj /Half gs <002d> Tj"}) {
+        CHECK(render(create_alpha_group(
+            std::string("/Half gs BT /F 4 Tf 1 1 Td ")+shows+" ET",""),
+            144u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    }
+
     const auto multiple_text=create_alpha_group(
         "BT /F 4 Tf /Alpha gs 1 1 Td <002d> Tj ET",
         "0 0 2 3 re f 3 0 -1.5 3 re f*");
@@ -414,7 +427,32 @@ static int alpha_group_cases(const std::string& filename)
 
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",""),72u,actual)==EXIT_SUCCESS);
     CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==255u;}));
-    CHECK(render(create_alpha_group("/Half gs 0 0 12 4 re f",group),
+    CHECK(render(create_alpha_group("/Half gs 0 0 12 4 re f",group),72u,actual)==EXIT_SUCCESS);
+    CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==128u;}));
+    const auto page_opacity=create_alpha_group(
+        "q /Half gs 1 0 0 rg 0 0 2 4 re f "
+        "BT ET q /Quarter gs 0 0 1 rg 1 0 2 4 re f Q "
+        "0 g 3 0 1 4 re f Q 0 g 4 0 1 4 re f "
+        "q /Half gs /Alpha gs 5 0 1 4 re f "
+        "q 1 0 0 4 6 0 cm /Plain Do Q "
+        "q 1 0 0 4 7 0 cm /Own Do Q "
+        "/Clear gs 8 0 1 4 re f /Zero gs 9 0 1 4 re f "
+        "q 1 0 0 4 10 0 cm /Plain Do Q Q",
+        "/Quarter gs 5 0 2 4 re f",
+        "<< /Subtype /Form /BBox [0 0 12 4] /Group << /S /Transparency /I true >> >>",
+        "<< /S /Alpha >>",false,{},128u);
+    const unsigned char expected_row[12][3]={
+        {255,128,128},{191,96,160},{191,191,255},{128,128,128},{0,0,0},
+        {223,223,223},{255,255,223},{255,255,191},{128,128,128},{255,255,255},
+        {255,255,255},{255,255,255}};
+    for(unsigned dpi:{72u,144u}) {
+        const size_t scale=dpi/72u,w=12u*scale,h=4u*scale;
+        CHECK(render(page_opacity,dpi,actual)==EXIT_SUCCESS);
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x)
+            for(size_t c=0u;c<3u;++c)
+                CHECK(actual[(y*w+x)*3u+c]==expected_row[x/scale][c]);
+    }
+    CHECK(render(create_alpha_group("/Bad gs 0 0 12 4 re f",""),
         72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     for(const char *unsupported : {"/Alpha gs", "/Bad gs 0 0 1 1 re f", "0 0 1 1 re S"}) {
         CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",unsupported),

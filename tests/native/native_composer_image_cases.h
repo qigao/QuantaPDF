@@ -9,7 +9,7 @@ inline placement fitted(unsigned fit,bool tall)
     if(fit==1u)return tall?placement{3,0,6,12}:placement{0,3,12,6};
     return {3,3,6,6};
 }
-inline std::vector<unsigned char> rgb(unsigned fit,bool tall,bool clipped,size_t page,unsigned dpi)
+inline std::vector<unsigned char> rgb(unsigned fit,bool tall,unsigned state_mode,size_t page,unsigned dpi)
 {
     const size_t w=((page==0u?12u:16u)*dpi+71u)/72u,h=((page==0u?12u:14u)*dpi+71u)/72u;
     const double scale=double(dpi)/72.0;
@@ -21,15 +21,16 @@ inline std::vector<unsigned char> rgb(unsigned fit,bool tall,bool clipped,size_t
         for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
             const double px=(double(x)+(double(sx)+0.5)/4.0)/scale;
             const double py=(double(y)+(double(sy)+0.5)/4.0)/scale;
-            const bool scope=draw!=0u || !clipped || (px>=3.0 && px<11.0 && py>=5.0 && py<9.0);
+            const bool scope=draw!=0u || state_mode==0u || (px>=3.0 && px<11.0 && py>=5.0 && py<9.0);
             const bool cover=draw!=0u || fit!=1u || (px>=3.0 && px<9.0 && py>=3.0 && py<9.0);
             hits+=unsigned(px>=p.x && px<p.x+p.w && py>=p.y && py<p.y+p.h && scope && cover);
         }
         const double coordinate=tall?((double(y)+0.5)/scale-p.y)/p.h:((double(x)+0.5)/scale-p.x)/p.w;
         const size_t sample=coordinate<0.5?0u:1u;
+        const unsigned covered=hits*(draw==0u && state_mode==2u?1u:2u);
         for(size_t c=0u;c<3u;++c) {
             auto& value=pixels[(y*w+x)*3u+c];
-            value=static_cast<unsigned char>((colors[sample][c]*hits+unsigned(value)*(16u-hits)+8u)/16u);
+            value=static_cast<unsigned char>((colors[sample][c]*covered+unsigned(value)*(32u-covered)+16u)/32u);
         }
     }
     return pixels;
@@ -38,7 +39,7 @@ inline std::vector<unsigned char> rgb(unsigned fit,bool tall,bool clipped,size_t
 
 static int composer_image_cases(const std::string& filename)
 {
-    size_t graphs=0u,renders=0u,refusals=0u;
+    size_t graphs=0u,renders=0u;
     for(bool tall:{false,true})for(unsigned state_mode:{0u,1u,2u})for(bool encrypted:{false,true}) {
         quantapdf_context *context=nullptr;quantapdf_composer *composer=nullptr;size_t finalized=0u;
         OK(quantapdf_context_create(&context));context->test_finalizations=&finalized;
@@ -122,26 +123,25 @@ static int composer_image_cases(const std::string& filename)
         for(unsigned fit=0u;fit<3u;++fit)for(size_t page=0u;page<2u;++page)for(unsigned dpi:{72u,96u,144u}) {
             quantapdf_bitmap *bitmap=nullptr;const quantapdf_render_options options{float(dpi),0.0f,0,{},0};
             const auto status=quantapdf_render_page_with_options(pages[2u*fit+page],&options,&bitmap);
-            if(state_mode==2u) {CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);++refusals;continue;}
             if(status!=QUANTAPDF_OK)std::fprintf(stderr,"image fit=%u tall=%d state=%u encrypted=%d page=%zu dpi=%u status=%d\n",fit,int(tall),state_mode,int(encrypted),page,dpi,int(status));
             CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
             int w=0,h=0,stride=0,components=0;OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&components));
             CHECK(w==int(((page==0u?12u:16u)*dpi+71u)/72u) && h==int(((page==0u?12u:14u)*dpi+71u)/72u) && stride==3*w && components==3);
             const unsigned char *pixels=nullptr;size_t count=0u;OK(quantapdf_bitmap_data(bitmap,&pixels,&count));
-            const auto expected=native_composer_image::rgb(fit,tall,state_mode==1u,page,dpi);
+            const auto expected=native_composer_image::rgb(fit,tall,state_mode,page,dpi);
             CHECK(count==expected.size() && std::memcmp(pixels,expected.data(),count)==0);
             bitmaps.push_back({bitmap,fit,dpi,page});++renders;
         }
-        for(auto page:pages)quantapdf_drop_page(page);CHECK(finalized==(state_mode==2u?1u:0u));
+        for(auto page:pages)quantapdf_drop_page(page);CHECK(finalized==0u);
         for(const auto& held:bitmaps) {
             const unsigned char *pixels=nullptr;size_t count=0u;OK(quantapdf_bitmap_data(held.bitmap,&pixels,&count));
-            const auto expected=native_composer_image::rgb(held.fit,tall,state_mode==1u,held.page,held.dpi);
+            const auto expected=native_composer_image::rgb(held.fit,tall,state_mode,held.page,held.dpi);
             CHECK(count==expected.size() && std::memcmp(pixels,expected.data(),count)==0);quantapdf_drop_bitmap(held.bitmap);
         }
         CHECK(finalized==1u);
     }
-    CHECK(graphs==72u && renders==144u && refusals==72u);
-    std::printf("Current Composer Image: %zu reopened shared-resource graphs, %zu independent RGB renders, %zu alpha refusals; three fit modes, transformed Clip/Q, selected encrypted pages and retired owners\n",graphs,renders,refusals);
+    CHECK(graphs==72u && renders==216u);
+    std::printf("Current Composer Image: %zu reopened shared-resource graphs and %zu independent RGB renders; three fit modes, transformed Clip/Q, half opacity, selected encrypted pages and retired owners\n",graphs,renders);
     return EXIT_SUCCESS;
 }
 #endif

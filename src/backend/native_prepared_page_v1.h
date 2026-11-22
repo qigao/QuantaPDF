@@ -181,7 +181,7 @@ static inline int qp_prepared_resource_closure(
     }
     for(size_t i=0u;i<r->graphics_state_count;++i) {
         const quantapdf_composer_graphics_state *gs=&r->graphics_states[i];
-        if(gs->fill_alpha!=1.0f || gs->stroke_alpha!=1.0f ||
+        if(!(gs->fill_alpha>=0.0 && gs->fill_alpha<=1.0) || gs->stroke_alpha!=1.0f ||
            gs->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL ||
            gs->soft_mask_id!=0u || gs->clip_id>r->clip_count)
             return 0;

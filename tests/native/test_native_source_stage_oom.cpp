@@ -5017,7 +5017,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const auto form=luminosity?luminosity_form(test.space,test.knockout):
             test.knockout?alpha_knockout_form:alpha_form;
         const auto sample=create_alpha_group(
-            test.nodes==1u?"/Alpha gs 0 0 12 4 re f":"q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",
+            test.nodes==1u?"/Alpha gs /Precise gs 0 0 12 4 re f":
+                "q 0 0 6 4 re W n /Alpha gs /Precise gs 0 0 12 4 re f Q",
             test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>",
             false,test.streams!=nullptr?*test.streams:no_streams);
         auto caps=defaults;
@@ -5039,7 +5040,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const size_t expected_nodes=test.nodes;
         CHECK(status==QUANTAPDF_OK && allocations>0u && ir.operation_count==1u &&
               ir.resources.clip_count==expected_nodes && ir.resources.graphics_state_count==1u &&
-              ir.resources.graphics_states[0].clip_id==expected_nodes);
+              ir.resources.graphics_states[0].clip_id==expected_nodes &&
+              ir.resources.graphics_states[0].fill_alpha==.123456789);
         if(test.nodes>5u || luminosity || test.function_nodes!=0u) {
             const auto mask_group=[](const quantapdf_ir& source) {
                 const auto *begin=source.resources.clips;
@@ -5068,6 +5070,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                 std::fprintf(stderr,"alpha group roundtrip Source status=%d\n",int(reopened_status));
             CHECK(reopened_status==QUANTAPDF_OK);
             CHECK(copy.operation_count==2u);
+            CHECK(copy.resources.graphics_state_count==1u &&
+                  copy.resources.graphics_states[0].fill_alpha==ir.resources.graphics_states[0].fill_alpha);
             const auto *copied_group=mask_group(copy);
             CHECK(copied_group!=copy.resources.clips+copy.resources.clip_count &&
                   copied_group->member_count==group->member_count && copied_group->knockout==group->knockout &&

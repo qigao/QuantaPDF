@@ -26,17 +26,18 @@ struct source_text_seed {
     /* Frozen Clip and alpha-group coverage at the original BT handoff.
      * Ordinary extraction leaves both identities zero. */
     quantapdf_composer_clip_id clip_id=0u,mask_clip_id=0u;
+    double opacity=1.0;
 };
 /* Page-scene callbacks on the original qpdf token stream. Fonts and
  * contours use the existing interpreter; qpdf/font owners do not escape. */
 struct source_mixed_callbacks {
     void *user=nullptr;
-    quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id,quantapdf_composer_clip_id)=nullptr;
+    quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id,quantapdf_composer_clip_id,double)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
         const std::array<double,6>&,const std::array<double,3>&,
-        quantapdf_composer_clip_id,quantapdf_composer_clip_id)=nullptr;
+        quantapdf_composer_clip_id,quantapdf_composer_clip_id,double)=nullptr;
     quantapdf_status (*on_gs)(void*,QPDFObjectHandle,const std::array<double,6>&,
-        quantapdf_composer_clip_id*)=nullptr;
+        quantapdf_composer_clip_id*,double*)=nullptr;
     /* Ordinary page paths retain one owner across BT. Operands are passed
      * directly once; the page reader freezes the supplied current state and
      * checks that BT does not enter an unfinished path object. */

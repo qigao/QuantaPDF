@@ -164,6 +164,7 @@ struct scenario {
     const char *ops;
     quantapdf_status result;
     bool indirect;
+    unsigned char expected_channel=0u;
 };
 static const char *const opaque_group=
     "<< /Type /Group /S /Transparency /I true /K false /CS /DeviceRGB >>";
@@ -202,7 +203,7 @@ static const scenario cases[]={
     {"gs-wrong-type",nullptr,"12",
         black_paint,QUANTAPDF_ERROR_FORMAT,false},
     {"gs-partial-opacity",opaque_group,"<< /CA 1 /ca 0.5 >>",
-        black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
+        black_paint,QUANTAPDF_OK,false,128u},
     {"gs-stroke-opacity",opaque_group,"<< /CA 0.5 /ca 1 >>",
         black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
     {"gs-multiply",opaque_group,"<< /CA 1 /ca 1 /BM /Multiply >>",
@@ -287,8 +288,9 @@ static int run(const std::string& original)
                   data!=nullptr &&
                   count==static_cast<size_t>(stride)*
                          static_cast<size_t>(h));
+            const unsigned char expected=external?0u:cases[idx-1u].expected_channel;
             for(size_t i=0u;i<count;++i)
-                CHECK(data[i]==0u); /* Independent solid-black golden. */
+                CHECK(data[i]==expected);
             if(retained==nullptr) {
                 retained=bitmap;
                 original_rgb.assign(data,data+count);
@@ -312,9 +314,9 @@ static int run(const std::string& original)
     CHECK(data!=nullptr && count==original_rgb.size() &&
           std::memcmp(data,original_rgb.data(),count)==0);
     quantapdf_drop_bitmap(retained);
-    CHECK(positives==6u && refusals==18u);
+    CHECK(positives==7u && refusals==17u);
     std::printf("Native original opaque gs/group: 1 real external solid-black, "
-                "5 generated black positives, 18 exact atomic refusals\n");
+                "5 generated black positives, 1 half-opacity gray, 17 exact atomic refusals\n");
     return EXIT_SUCCESS;
 }
 #include "native_ttf_public_cases.h"
