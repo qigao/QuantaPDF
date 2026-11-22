@@ -4981,26 +4981,34 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         size_t nodes;
         bool partial,knockout;
         const char *mask=nullptr;
-        const char *space="/DeviceGray";
+        const char *space=nullptr;
+        bool transfer=false;
     } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
         {"/Precise gs 0 0 4 3 re f",6u,true,false},
         {"/Half gs 0 0 2 3 re f /Quarter gs 3 0 -1.5 3 re f*",8u,true,false},
         {"/Half gs 0 0 2 3 re f /Zero gs 3 0 -1.5 3 re f*",8u,true,true},
-        {"",1u,false,false,"<< /S /Luminosity /BC [.375] >>"},
+        {"",1u,false,false,"<< /S /Luminosity /BC [.375] >>","/DeviceGray"},
         {".123456789 .2 .9 rg /Precise gs 0 0 4 3 re f",6u,true,false,
          "<< /S /Luminosity /BC [.2 .4 .1] >>","/DeviceRGB"},
         {".75 g /Half gs 0 0 2 3 re f /Zero gs 3 0 -1.5 3 re f*",8u,true,true,
-         "<< /S /Luminosity /BC [.125] >>"},
+         "<< /S /Luminosity /BC [.125] >>","/DeviceGray"},
+        {"",1u,false,false,
+         "<< /S /Alpha /TR << /FunctionType 2 /Domain [-1 -.5] /C0 [1] /C1 [1.25] /N -1 >> >>",nullptr,true},
+        {"0 0 4 3 re f",6u,false,false,
+         "<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /N 2 /C0 [.25] >> >>",nullptr,true},
+        {".75 g /Half gs 0 0 2 3 re f /Zero gs 3 0 -1.5 3 re f*",8u,true,true,
+         "<< /S /Luminosity /BC [.25] /TR << /FunctionType 2 /Domain [.123456789 .987654321]"
+         " /Range [-.051 1.25] /C0 [1] /C1 [.375] /N -.5 >> >>","/DeviceGray",true},
     };
     for(const auto& test:cases) {
-        const bool luminosity=test.mask!=nullptr;
+        const bool luminosity=test.space!=nullptr;
         const auto form=luminosity?luminosity_form(test.space,test.knockout):
             test.knockout?alpha_knockout_form:alpha_form;
         const auto sample=create_alpha_group(
             test.nodes==1u?"/Alpha gs 0 0 12 4 re f":"q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",
-            test.content,form.c_str(),luminosity?test.mask:"<< /S /Alpha /TR /Identity >>");
+            test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>");
         auto caps=defaults;
         caps.max_content_bytes=sample.decoded_bytes;
         quantapdf_qpdf_document *document=nullptr;
@@ -5021,7 +5029,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         CHECK(status==QUANTAPDF_OK && allocations>0u && ir.operation_count==1u &&
               ir.resources.clip_count==expected_nodes && ir.resources.graphics_state_count==1u &&
               ir.resources.graphics_states[0].clip_id==expected_nodes);
-        if(test.nodes>5u || luminosity) {
+        if(test.nodes>5u || luminosity || test.transfer) {
             const auto mask_group=[](const quantapdf_ir& source) {
                 const auto *begin=source.resources.clips;
                 return std::find_if(begin,begin+source.resources.clip_count,[](const auto& clip) {
@@ -5032,7 +5040,8 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
             CHECK(group!=ir.resources.clips+ir.resources.clip_count &&
                   group->mask_mode==(luminosity?QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY:
                                                QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA) &&
-                  (group->member_opacities!=nullptr)==test.partial && bool(group->knockout)==test.knockout);
+                  (group->member_opacities!=nullptr)==test.partial && bool(group->knockout)==test.knockout &&
+                  (group->transfer!=nullptr)==test.transfer);
             unsigned char *encoded=nullptr;
             size_t encoded_size=0u;
             CHECK(quantapdf_qpdf_compose(&ir,&encoded,&encoded_size)==QUANTAPDF_OK);
@@ -5052,7 +5061,15 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                   copied_group->member_count==group->member_count && copied_group->knockout==group->knockout &&
                   (copied_group->member_opacities!=nullptr)==test.partial &&
                   copied_group->mask_mode==group->mask_mode &&
-                  copied_group->backdrop_luminosity==group->backdrop_luminosity);
+                  copied_group->backdrop_luminosity==group->backdrop_luminosity &&
+                  (copied_group->transfer!=nullptr)==test.transfer);
+            if(test.transfer) {
+                const auto& a=*group->transfer;
+                const auto& b=*copied_group->transfer;
+                CHECK(a.domain[0]==b.domain[0] && a.domain[1]==b.domain[1] &&
+                      a.has_range==b.has_range && a.range[0]==b.range[0] && a.range[1]==b.range[1] &&
+                      a.c0==b.c0 && a.c1==b.c1 && a.exponent==b.exponent);
+            }
             for(size_t branch=0u;branch<group->member_count;++branch) {
                 if(test.partial)CHECK(copied_group->member_opacities[branch]==group->member_opacities[branch]);
                 if(luminosity)CHECK(copied_group->member_luminosities[branch]==group->member_luminosities[branch]);

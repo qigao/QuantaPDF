@@ -73,6 +73,13 @@ typedef enum quantapdf_composer_clip_kind_internal {
     QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL = 3
 } quantapdf_composer_clip_kind_internal;
 
+typedef struct quantapdf_mask_transfer {
+    double domain[2];
+    double range[2];
+    double c0, c1, exponent;
+    int has_range;
+} quantapdf_mask_transfer;
+
 typedef struct quantapdf_composer_clip_state {
     quantapdf_composer_clip_kind_internal kind;
     quantapdf_composer_path_command *commands;
@@ -85,6 +92,7 @@ typedef struct quantapdf_composer_clip_state {
     double *member_luminosities; /* One projected DeviceGray value per luminosity fill. */
     double backdrop_luminosity;
     quantapdf_composer_soft_mask_mode mask_mode;
+    quantapdf_mask_transfer *transfer; /* Absent for /Identity. */
     int knockout;
 } quantapdf_composer_clip_state;
 

@@ -218,6 +218,67 @@ static int alpha_group_cases(const std::string& filename)
     CHECK(render(empty_luminosity,72u,actual)==EXIT_SUCCESS);
     CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==159u;}));
 
+    const auto squared_alpha=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f",
+        "/Half gs 0 0 2 2 re f /Quarter gs 1 0 2 2 re f",
+        alpha_form,"<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /N 2 >> >>");
+    for(unsigned dpi:{72u,144u}) {
+        CHECK(render(squared_alpha,dpi,actual)==EXIT_SUCCESS);
+        const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+        constexpr unsigned divisor=16u*64u;
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+            unsigned opacity=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                if(py>=2.0)continue;
+                const bool first=px>=0.5 && px<2.5,second=px>=1.5 && px<3.5;
+                const unsigned alpha=first?(second?5u:4u):second?2u:0u;
+                opacity+=alpha*alpha;
+            }
+            for(size_t channel=0u;channel<3u;++channel)
+                CHECK(actual[3u*(y*w+x)+channel]==(255u*(divisor-opacity)+divisor/2u)/divisor);
+        }
+    }
+
+    const auto inverted_alpha=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f","0 0 4 3 re f",
+        alpha_form,"<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >>");
+    CHECK(render(inverted_alpha,144u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const size_t pixel=i/3u,x=pixel%24u,y=pixel/24u;
+        CHECK(actual[i]==(x>=1u && x<9u && y>=3u?255u:0u));
+    }
+
+    const auto clamped_luminosity=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f",".125 g .5 0 1 2.5 re f 1 g 1.5 0 1 2.5 re f",
+        luminosity_form("/DeviceGray").c_str(),
+        "<< /S /Luminosity /BC [.5] /TR << /FunctionType 2 /Domain [.25 .75] /Range [.125 .5] /N 2 >> >>");
+    CHECK(render(clamped_luminosity,72u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const size_t pixel=i/3u,x=pixel%12u,y=pixel/12u;
+        unsigned wanted=191u;
+        if(y>=1u && x==1u)wanted=y==1u?207u:223u;
+        if(y>=1u && x==2u)wanted=y==1u?159u:128u;
+        CHECK(actual[i]==wanted);
+    }
+
+    const auto transferred_empty=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f","",alpha_form,
+        "<< /S /Alpha /TR << /FunctionType 2 /Domain [-1 -.5] /C0 [1] /C1 [1.25] /N -1 >> >>");
+    CHECK(render(transferred_empty,72u,actual)==EXIT_SUCCESS);
+    CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==128u;}));
+
+    // Transfer output is always clipped to unit opacity, even with no /Range.
+    const auto clipped_output=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f","0 0 4 3 re f",alpha_form,
+        "<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /C0 [2] /C1 [-1] /N 1 >> >>");
+    CHECK(render(clipped_output,144u,reference)==EXIT_SUCCESS && reference.size()==24u*8u*3u);
+    for(size_t i=0u;i<reference.size();++i) {
+        const size_t pixel=i/3u,x=pixel%24u,y=pixel/24u;
+        CHECK(reference[i]==(x>=1u && x<9u && y>=3u?255u:0u));
+    }
+
     std::string many_fills;
     for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
     many_fills+="0 0 1 1 re f";
@@ -250,6 +311,15 @@ static int alpha_group_cases(const std::string& filename)
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,
         luminosity_form("/DeviceGray").c_str(),"<< /S /Luminosity /BC [.5 .5 .5] >>"),
         72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+        "<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /N -1 >> >>"),
+        72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+        "<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /C0 [0 1] /N 1 >> >>"),
+        72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+        "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] >> >>"),
+        72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 

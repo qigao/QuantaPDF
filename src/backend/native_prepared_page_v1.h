@@ -161,12 +161,15 @@ static inline int qp_prepared_resource_closure(
         } else if(c->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
                   c->kind==QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL) {
             const int mask=c->kind==QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL;
-            const size_t minimum=mask?(c->mask_mode==QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY?0u:1u):2u;
+            const int constant_mask=mask && (c->mask_mode==QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY ||
+                c->transfer!=NULL);
+            const size_t minimum=mask?(constant_mask?0u:1u):2u;
             const size_t member_bytes=sizeof(*c->members)+sizeof(double)*(size_t)(
                 (c->member_opacities!=NULL)+(c->member_luminosities!=NULL));
             if(c->commands!=NULL || c->command_count!=0u ||
                ((c->members==NULL)!=(c->member_count==0u)) || c->member_count<minimum ||
-               !qp_prepared_bytes(&u->retained_bytes,c->member_count,member_bytes))
+               !qp_prepared_bytes(&u->retained_bytes,c->member_count,member_bytes) ||
+               (c->transfer!=NULL && !qp_prepared_bytes(&u->retained_bytes,1u,sizeof(*c->transfer))))
                 return 0;
             for(size_t j=0u;j<c->member_count;++j) {
                 const size_t id=(size_t)c->members[j];
