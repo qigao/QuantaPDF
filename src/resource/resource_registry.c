@@ -90,7 +90,8 @@ static int clip_equal(const quantapdf_composer_clip_state *a,
     size_t i;
     if (a->kind != b->kind)
         return 0;
-    if (a->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
+    if (a->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+        a->kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL)
         return a->member_count == b->member_count &&
             bytes_equal(a->members, b->members, a->member_count * sizeof(*a->members));
     if (a->command_count != b->command_count || a->fill_rule != b->fill_rule ||

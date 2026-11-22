@@ -69,7 +69,8 @@ typedef struct quantapdf_composer_soft_mask_state {
 
 typedef enum quantapdf_composer_clip_kind_internal {
     QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL = 1,
-    QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL = 2
+    QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL = 2,
+    QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL = 3
 } quantapdf_composer_clip_kind_internal;
 
 typedef struct quantapdf_composer_clip_state {

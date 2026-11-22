@@ -3,6 +3,7 @@
  * pre-allocation arming points, not with a replacement source/provider.
  * QPDF authors the original PDF; PDFium is never linked. */
 #include <quantapdf/quantapdf.h>
+#include "backend/qpdf_composer.h"
 #include "backend/qpdf_page_ir.h"
 #include "native_source_test_page.h"
 #include "backend/native_prepared_page_v1.h"
@@ -4972,10 +4973,11 @@ static int content_stream_source_contracts(
     return EXIT_SUCCESS;
 }
 
-static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& defaults)
+static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& defaults,bool multiple)
 {
     const auto sample=native_graphics_fixture::create_alpha_group(
-        "q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q","0 0 4 3 re f");
+        "q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",
+        multiple?"0 0 2 3 re f 3 0 -1.5 3 re f*":"0 0 4 3 re f");
     auto caps=defaults;
     caps.max_content_bytes=sample.decoded_bytes;
     quantapdf_qpdf_document *document=nullptr;
@@ -4992,9 +4994,41 @@ static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& default
     const auto status=quantapdf_qpdf_page_to_ir(document,0u,&caps,&ir);
     track_c_allocation=false;
     const size_t allocations=c_allocations;
+    const size_t expected_nodes=multiple?8u:5u;
     CHECK(status==QUANTAPDF_OK && allocations>0u && ir.operation_count==1u &&
-          ir.resources.clip_count==5u && ir.resources.graphics_state_count==1u &&
-          ir.resources.graphics_states[0].clip_id==5u);
+          ir.resources.clip_count==expected_nodes && ir.resources.graphics_state_count==1u &&
+          ir.resources.graphics_states[0].clip_id==expected_nodes);
+    if(multiple) {
+        unsigned char *encoded=nullptr;
+        size_t encoded_size=0u;
+        CHECK(quantapdf_qpdf_compose(&ir,&encoded,&encoded_size)==QUANTAPDF_OK);
+        const std::unique_ptr<unsigned char,decltype(&std::free)> data(encoded,std::free);
+        quantapdf_qpdf_document *reopened=nullptr;
+        CHECK(quantapdf_qpdf_open_memory(encoded,encoded_size,"",&reopened)==QUANTAPDF_OK);
+        const std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> reopened_owner(reopened,quantapdf_qpdf_close);
+        quantapdf_ir copy{};
+        const auto dispose_copy=std::unique_ptr<quantapdf_ir,decltype(&quantapdf_ir_dispose)>(&copy,quantapdf_ir_dispose);
+        const auto reopened_status=quantapdf_qpdf_page_to_ir(reopened,0u,&defaults,&copy);
+        if(reopened_status!=QUANTAPDF_OK)
+            std::fprintf(stderr,"alpha group roundtrip Source status=%d\n",int(reopened_status));
+        CHECK(reopened_status==QUANTAPDF_OK);
+        CHECK(copy.operation_count==2u);
+        const auto render=[](const quantapdf_ir& source,quantapdf_ir_raster_image& image) {
+            const quantapdf_ir_raster_scoped_mixed_v5_limits budget={300u,2u,512u,1000000u,16u,300u};
+            quantapdf_native_page_device device{};
+            device.dpi=144.0f;
+            quantapdf_native_prepared_page_v1 plan{};
+            auto result=quantapdf_native_prepare_page_v1(&source,&budget,&device,&plan);
+            if(result!=QUANTAPDF_OK)return result;
+            return quantapdf_native_execute_page_v1(&plan,nullptr,&image);
+        };
+        quantapdf_ir_raster_image before{},after{};
+        const auto dispose_before=std::unique_ptr<quantapdf_ir_raster_image,decltype(&quantapdf_ir_raster_image_dispose)>(&before,quantapdf_ir_raster_image_dispose);
+        const auto dispose_after=std::unique_ptr<quantapdf_ir_raster_image,decltype(&quantapdf_ir_raster_image_dispose)>(&after,quantapdf_ir_raster_image_dispose);
+        CHECK(render(ir,before)==QUANTAPDF_OK && render(copy,after)==QUANTAPDF_OK);
+        CHECK(before.width==24u && before.height==8u && before.size==after.size &&
+              std::memcmp(before.pixels,after.pixels,before.size)==0);
+    }
     quantapdf_ir_dispose(&ir);
     for(size_t fail=1u;fail<=allocations;++fail) {
         track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
@@ -5008,7 +5042,8 @@ static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& default
 static int graphics_state_source_contracts(
     const quantapdf_qpdf_page_limits& defaults)
 {
-    CHECK(alpha_group_source_contract(defaults)==EXIT_SUCCESS);
+    CHECK(alpha_group_source_contract(defaults,false)==EXIT_SUCCESS);
+    CHECK(alpha_group_source_contract(defaults,true)==EXIT_SUCCESS);
     size_t stack_faults=0u,publication_faults=0u,quota_checks=0u;
     for(bool clipped:{false,true})for(bool encrypted:{false,true})for(int kind:{0,1,2,3}) {
         const bool images=kind==1;

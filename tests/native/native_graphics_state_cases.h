@@ -74,6 +74,35 @@ static int alpha_group_cases(const std::string& filename)
         }
     }
 
+    const auto multiple=create_alpha_group(
+        "0 1 0 rg 0 0 12 4 re f q 0.75 0 3 2.25 re W n /Alpha gs "
+        "0 0 1 rg 0 1 12 3 re f q 12 0 0 1 0 0 cm /Plain Do Q Q",
+        "q 0 0 2 2 re W n -1 -1 4 4 re f Q "
+        "q 1.25 0 1.5 3 re W n 3 0.5 -2 2 re f* Q "
+        "3.5 0 1 3 re f");
+    for(unsigned dpi:{72u,144u}) {
+        std::vector<unsigned char> pixels;
+        CHECK(render(multiple,dpi,pixels)==EXIT_SUCCESS);
+        const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+            unsigned blue=0u,yellow=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                const bool first=px>=0.5 && px<2.5 && py>=0.0 && py<2.0;
+                const bool second=px>=1.75 && px<3.25 && py>=0.5 && py<2.5;
+                if(px>=0.75 && px<3.75 && py<2.25 && (first || second)) {
+                    blue+=unsigned(py>=1.0);
+                    yellow+=unsigned(py<1.0);
+                }
+            }
+            const size_t index=(y*w+x)*3u;
+            CHECK(pixels[index]==(255u*yellow+8u)/16u);
+            CHECK(pixels[index+1u]==(255u*(16u-blue)+8u)/16u);
+            CHECK(pixels[index+2u]==(255u*blue+8u)/16u);
+        }
+    }
+
     // A real outlined glyph: use an independently authored Clip as the
     // expected geometry, and require both ink and a measurable mask effect.
     const auto text=create_alpha_group(
@@ -89,6 +118,18 @@ static int alpha_group_cases(const std::string& filename)
     CHECK(actual==reference && actual!=unmasked &&
           std::any_of(actual.begin(),actual.end(),[](unsigned char v){return v!=255u;}));
 
+    const auto multiple_text=create_alpha_group(
+        "BT /F 4 Tf /Alpha gs 1 1 Td <002d> Tj ET",
+        "0 0 2 3 re f 3 0 -1.5 3 re f*");
+    CHECK(render(multiple_text,144u,actual)==EXIT_SUCCESS && actual==reference);
+
+    std::string many_fills;
+    for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
+    many_fills+="0 0 1 1 re f";
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",many_fills),72u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i)
+        CHECK(actual[i]==(i/3u/12u==3u && i/3u%12u<2u?128u:255u));
+
     // The second gs replaces the old mask. Reflection is in Form space.
     const auto replacement=create_alpha_group(
         "q /Alpha gs 1 0 0 1 4 0 cm /Alpha gs -4 0 12 4 re f Q",
@@ -100,7 +141,7 @@ static int alpha_group_cases(const std::string& filename)
 
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",""),72u,actual)==EXIT_SUCCESS);
     CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==255u;}));
-    for(const char *unsupported : {"0 0 2 2 re f 2 0 2 2 re f", "/Alpha gs", "0 0 1 1 re S"}) {
+    for(const char *unsupported : {"/Alpha gs", "0 0 1 1 re S"}) {
         CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",unsupported),
             72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }

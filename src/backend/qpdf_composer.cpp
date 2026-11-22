@@ -1253,9 +1253,10 @@ void append_path_content(
     content += "q ";
     auto const& transform = options.transform;
     bool const identity_transform =
-        transform.a == 1.0f && transform.b == 0.0f &&
-         transform.c == 0.0f && transform.d == 1.0f &&
-         transform.e == 0.0f && transform.f == 0.0f;
+        transform.b == 0.0f && transform.c == 0.0f &&
+        transform.e == 0.0f && transform.f == 0.0f &&
+        ((transform.a == 1.0f && transform.d == 1.0f) ||
+         (transform.a == 0.0f && transform.d == 0.0f));
     if (!identity_transform) {
         double const a = canonical_zero(transform.a);
         double const b =
@@ -1386,22 +1387,15 @@ void append_form_content(
         operation.value.form.transform);
 }
 
-QPDFObjectHandle make_soft_mask_group(
+QPDFObjectHandle make_transparency_group(
     QPDF& pdf,
-    QPDFObjectHandle source_form,
-    quantapdf_composer_form_state const& form,
-    quantapdf_composer_soft_mask_state const& mask,
+    std::string const& content,
+    QPDFObjectHandle resources,
     quantapdf_composer_page_state const& page)
 {
-    auto stream = pdf.newStream(form_placement_content(
-        "/MaskSource",
-        form.height_points,
-        page.height_points,
-        mask.transform));
+    auto stream = pdf.newStream(content);
     auto dictionary = stream.getDict();
     auto bbox = QPDFObjectHandle::newArray();
-    auto resources = QPDFObjectHandle::newDictionary();
-    auto xobjects = QPDFObjectHandle::newDictionary();
     auto group = QPDFObjectHandle::newDictionary();
 
     dictionary.replaceKey("/Type", QPDFObjectHandle::newName("/XObject"));
@@ -1416,8 +1410,6 @@ QPDFObjectHandle make_soft_mask_group(
         page.height_points, decimal_precision(page.height_points)));
     dictionary.replaceKey("/BBox", bbox);
 
-    xobjects.replaceKey("/MaskSource", source_form);
-    resources.replaceKey("/XObject", xobjects);
     dictionary.replaceKey("/Resources", resources);
 
     group.replaceKey("/S", QPDFObjectHandle::newName("/Transparency"));
@@ -1426,6 +1418,23 @@ QPDFObjectHandle make_soft_mask_group(
     group.replaceKey("/K", QPDFObjectHandle::newBool(false));
     dictionary.replaceKey("/Group", group);
     return stream;
+}
+
+
+QPDFObjectHandle make_soft_mask_group(
+    QPDF& pdf,
+    QPDFObjectHandle source_form,
+    quantapdf_composer_form_state const& form,
+    quantapdf_composer_soft_mask_state const& mask,
+    quantapdf_composer_page_state const& page)
+{
+    auto resources = QPDFObjectHandle::newDictionary();
+    auto xobjects = QPDFObjectHandle::newDictionary();
+    xobjects.replaceKey("/MaskSource", source_form);
+    resources.replaceKey("/XObject", xobjects);
+    return make_transparency_group(pdf,
+        form_placement_content("/MaskSource", form.height_points, page.height_points, mask.transform),
+        resources, page);
 }
 
 
@@ -1661,45 +1670,71 @@ void append_path_clip_content(
 }
 
 void append_clip_content_bounded(
-    std::string& content,
+    std::string* content,
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip,
+    quantapdf_composer_clip_state const*& alpha_group,
     std::size_t depth,
     std::size_t& visits)
 {
-    /* A valid Clip intersection DAG is a conjunction of path clips.
-     * Emitting the leaves in DFS order preserves its semantics in PDF:
-     * each W/W* narrows the current graphics-state Clip. No flattened
-     * unbounded temporary paths or fallback providers are needed. */
     if (depth >= 8u || visits >= 1024u)
         throw std::logic_error("clip graph traversal budget exceeded");
     ++visits;
     if (clip.kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
-        append_path_clip_content(content, page, clip);
+        if (content != nullptr)
+            append_path_clip_content(*content, page, clip);
+        return;
+    }
+    if (clip.kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) {
+        if (alpha_group != nullptr && alpha_group != &clip)
+            throw std::logic_error("multiple alpha groups on one graphics state");
+        alpha_group = &clip;
         return;
     }
     if (clip.kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
         throw std::logic_error("unknown clip resource kind");
 
+    // All leaves outside the alpha group are ordinary successive W/W* clips.
     for (size_t i = 0u; i < clip.member_count; ++i) {
         auto const id = clip.members[i];
         if (id == 0u || id > ir->resources.clip_count)
             throw std::logic_error("compound clip member missing");
         auto const& member = ir->resources.clips[id - 1u];
         append_clip_content_bounded(
-            content, ir, page, member, depth + 1u, visits);
+            content, ir, page, member, alpha_group, depth + 1u, visits);
     }
 }
 
-void append_clip_content(
-    std::string& content,
+quantapdf_composer_clip_state const* append_clip_content(
+    std::string* content,
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip)
 {
     std::size_t visits = 0u;
-    append_clip_content_bounded(content, ir, page, clip, 0u, visits);
+    quantapdf_composer_clip_state const* alpha_group = nullptr;
+    append_clip_content_bounded(content, ir, page, clip, alpha_group, 0u, visits);
+    return alpha_group;
+}
+
+QPDFObjectHandle make_clip_alpha_group(
+    QPDF& pdf,
+    quantapdf_ir const* ir,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_clip_state const& group)
+{
+    std::string content;
+    const std::string fill = "0 0 " + number(page.width_points) + " " +
+        number(page.height_points) + " re f Q\n";
+    for (std::size_t i = 0u; i < group.member_count; ++i) {
+        content += "q\n";
+        const auto& branch = ir->resources.clips[group.members[i] - 1u];
+        if (append_clip_content(&content, ir, page, branch) != nullptr)
+            throw std::logic_error("nested alpha groups");
+        content += fill;
+    }
+    return make_transparency_group(pdf, content, QPDFObjectHandle::newDictionary(), page);
 }
 
 std::string page_content(
@@ -1736,7 +1771,7 @@ std::string page_content(
                     throw std::logic_error("clip resource missing");
                 content += "q\n";
                 append_clip_content(
-                    content,
+                    &content,
                     ir,
                     page,
                     ir->resources.clips[state.clip_id - 1u]);
@@ -2380,10 +2415,12 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     throw std::logic_error("graphics state resource missing");
                 auto const& state =
                     ir->resources.graphics_states[id - 1u];
-                auto& object =
-                    state.soft_mask_id == 0u
-                    ? graphics_state_objects[id - 1u]
-                    : page_masked_graphics_state_objects[id - 1u];
+                const auto& page = ir->pages[page_index];
+                const auto* alpha_group = state.clip_id == 0u ? nullptr :
+                    append_clip_content(nullptr, ir, page, ir->resources.clips[state.clip_id - 1u]);
+                auto& object = state.soft_mask_id != 0u || alpha_group != nullptr
+                    ? page_masked_graphics_state_objects[id - 1u]
+                    : graphics_state_objects[id - 1u];
                 if (!object.has_value()) {
                     object = make_graphics_state(pdf, state);
                     if (state.soft_mask_id != 0u) {
@@ -2398,6 +2435,13 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                                 : "/Luminosity"));
                         soft_mask.replaceKey(
                             "/G", ensure_soft_mask_group(state.soft_mask_id));
+                        if (alpha_group != nullptr)
+                            throw std::logic_error("multiple masks on one graphics state");
+                        object->replaceKey("/SMask", soft_mask);
+                    } else if (alpha_group != nullptr) {
+                        auto soft_mask = QPDFObjectHandle::newDictionary();
+                        soft_mask.replaceKey("/S", QPDFObjectHandle::newName("/Alpha"));
+                        soft_mask.replaceKey("/G", make_clip_alpha_group(pdf, ir, page, *alpha_group));
                         object->replaceKey("/SMask", soft_mask);
                     }
                 }

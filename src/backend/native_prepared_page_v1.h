@@ -158,7 +158,8 @@ static inline int qp_prepared_resource_closure(
                !qp_prepared_commands(c->commands,c->command_count,u))
                 return 0;
             ++u->clip_leaves;
-        } else if(c->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
+        } else if(c->kind==QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+                  c->kind==QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) {
             if(c->commands!=NULL || c->command_count!=0u || c->members==NULL ||
                c->member_count<2u ||
                !qp_prepared_bytes(&u->retained_bytes,c->member_count,sizeof(*c->members)))
@@ -309,7 +310,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
             /* One result surface and scratch only for original glyph masks. */
             const size_t pixel_bytes=4u+(p.usage.glyphs!=0u?sizeof(uint16_t):0u);
             size_t clips=0u;
-            if(!quantapdf_native_scene_clip_storage_bound_v1(source->resources.clip_count,p.usage.clip_leaves,&clips) ||
+            if(!quantapdf_native_scene_clip_storage_bound_v1(&source->resources,p.usage.clip_leaves,&clips) ||
                !qp_prepared_charge(&bytes,clips,SIZE_MAX) ||
                !qp_prepared_bytes(&bytes,p.usage.expanded_paints,sizeof(quantapdf_composer_operation)) ||
                !qp_prepared_bytes(&bytes,limits->max_pixels,pixel_bytes))

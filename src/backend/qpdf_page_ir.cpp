@@ -201,6 +201,7 @@ struct staged_clip_definition {
     staged_image_clip path;
     clip_identity parent=0u;
     clip_identity other=0u; // An intersection of two existing roots has no path.
+    std::vector<clip_identity> group_fills={}; // Union of the individual masked fills.
 };
 
 /* The bounded Stroke samplers still require short leaves. Ordinary Clip
@@ -1124,7 +1125,6 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             // Painting an empty path has no coverage or retained operation.
             if(pending_path.empty())return;
-            admit(!in_alpha_group || target.order.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.three_branch_candidate)
                 admit(op=="f" && target.painted_paths.size()>=1u &&
                       target.painted_paths.size()<=2u &&
@@ -1352,8 +1352,8 @@ private:
         reader.clear_path();
         form.parseAsContents(&reader);
 
-        // A single opaque fill yields alpha one exactly where its path
-        // survives the Form BBox and its local clipping path.
+        // At each sample the group's alpha is the union of the opaque
+        // fills after their own BBox and graphics-state Clips.
         admit(child.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
         if(child.order.empty()) {
             reader.complete_clip_contour();
@@ -1365,9 +1365,15 @@ private:
             if(clip.parent!=0u)clip.parent+=base;
             target.append_clip(std::move(clip));
         }
-        auto& fill=child.painted_paths.front();
-        return target.append_clip({{std::move(fill.commands),fill.fill_rule},
-                                  base+child.scoped_clip_membership.front()});
+        std::vector<clip_identity> fills;
+        fills.reserve(child.painted_paths.size());
+        for(size_t i=0u;i<child.painted_paths.size();++i) {
+            auto& fill=child.painted_paths[i];
+            fills.push_back(target.append_clip({{std::move(fill.commands),fill.fill_rule},
+                                                base+child.scoped_clip_membership[i]}));
+        }
+        if(fills.size()==1u)return fills.front();
+        return target.append_clip({{},0u,0u,std::move(fills)});
     }
 
     /* The SAME QPDF operator callbacks account for every original m:
@@ -2020,12 +2026,15 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
             const auto& clip=source.clips[i-1u];
             if(clip.parent!=0u)needed[clip.parent-1u]=1u;
             if(clip.other!=0u)needed[clip.other-1u]=1u;
+            for(clip_identity fill:clip.group_fills)needed[fill-1u]=1u;
         }
         size_t leaf_count=0u,intersections=0u,state_count=0u;
         for(size_t i=0u;i<count;++i) {
             if(needed[i]) {
-                if(source.clips[i].other==0u)leaves[i]=static_cast<clip_identity>(++leaf_count);
-                intersections+=source.clips[i].parent!=0u;
+                const auto& definition=source.clips[i];
+                if(definition.other==0u && definition.group_fills.empty())
+                    leaves[i]=static_cast<clip_identity>(++leaf_count);
+                intersections+=definition.parent!=0u || !definition.group_fills.empty();
             }
             if(observed[i])states[i]=static_cast<quantapdf_composer_graphics_state_id>(++state_count);
         }
@@ -2047,7 +2056,16 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
             const auto& definition=source.clips[i];
             if(leaves[i]!=0u)copy_source_clip(ir.resources.clips[leaves[i]-1u],definition.path);
             const auto parent=definition.parent;
-            if(parent==0u)roots[i]=leaves[i];
+            if(!definition.group_fills.empty()) {
+                auto& root=ir.resources.clips[next_node++];
+                root.kind=QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL;
+                root.member_count=definition.group_fills.size();
+                root.members=static_cast<clip_identity *>(QP_SOURCE_C_MALLOC(root.member_count*sizeof(*root.members)));
+                admit(root.members!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                for(size_t k=0u;k<root.member_count;++k)
+                    root.members[k]=roots[definition.group_fills[k]-1u];
+                roots[i]=static_cast<clip_identity>(next_node);
+            } else if(parent==0u)roots[i]=leaves[i];
             else {
                 auto& root=ir.resources.clips[next_node++];
                 root.kind=QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL;

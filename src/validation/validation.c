@@ -108,7 +108,8 @@ static int clip_dag_acyclic(
     clip = &registry->clips[id - 1u];
     if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
         return 1;
-    if (clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+    if ((clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
+         clip->kind != QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) ||
         clip->members == NULL || clip->member_count == 0u)
         return 0;
     stack[depth] = id;
@@ -211,21 +212,21 @@ quantapdf_status quantapdf_validate_ir(
                 transform_valid(v->transform) && v->fill_rule >= QUANTAPDF_COMPOSER_FILL_NONZERO &&
                 v->fill_rule <= QUANTAPDF_COMPOSER_FILL_EVEN_ODD, QUANTAPDF_VALIDATION_CLIP, i);
         } else {
-            VALUE(v->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
+            VALUE((v->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+                   v->kind == QUANTAPDF_COMPOSER_CLIP_ALPHA_GROUP_INTERNAL) &&
                 v->member_count != 0 && array_valid(v->members, v->member_count, sizeof(*v->members)),
                 QUANTAPDF_VALIDATION_CLIP, i);
             for (j = 0; j < v->member_count; ++j) {
                 size_t id = v->members[j];
                 REF(required_id(id, r->clip_count), QUANTAPDF_VALIDATION_CLIP, i, id);
-                /* Members may be Clip Paths OR nested intersections; the
-                 * traversal gate below rejects cycles/unsupported graphs. */
+                /* Validate referenced paths and compound nodes below. */
             }
         }
     }
     /* Validate every nested graph once as a possible root. Flat legacy
      * intersection resources continue to pass this same bounded gate. */
     for (i = 0; i < r->clip_count; ++i) {
-        if (r->clips[i].kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
+        if (r->clips[i].kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             size_t stack[8] = {0};
             size_t visits = 0u;
             /* A cyclic Clip reference is a reference violation. Preserve
