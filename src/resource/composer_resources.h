@@ -86,6 +86,8 @@ typedef struct quantapdf_mask_transfer {
     size_t sample_offset, sample_count;
     unsigned sample_bits, sample_order;
     double sample_encode[2], sample_decode[2];
+    size_t program_offset, program_size;
+    size_t instruction_offset, instruction_count;
 } quantapdf_mask_transfer;
 
 typedef struct quantapdf_composer_clip_state {
@@ -102,8 +104,8 @@ typedef struct quantapdf_composer_clip_state {
     quantapdf_composer_soft_mask_mode mask_mode;
     quantapdf_mask_transfer *transfer; /* Absent for /Identity. */
     size_t transfer_count;
-    unsigned char *transfer_samples;
-    size_t transfer_sample_bytes;
+    unsigned char *transfer_data;
+    size_t transfer_data_bytes;
     int knockout;
 } quantapdf_composer_clip_state;
 

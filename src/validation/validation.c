@@ -212,8 +212,8 @@ quantapdf_status quantapdf_validate_ir(
         const int luminosity = mask && v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
         VALUE(array_valid(v->transfer, v->transfer_count, sizeof(*v->transfer)) &&
             ((v->transfer == NULL) == (v->transfer_count == 0u)) &&
-            ((v->transfer_samples == NULL) == (v->transfer_sample_bytes == 0u)) &&
-            (v->transfer_sample_bytes == 0u || v->transfer != NULL), QUANTAPDF_VALIDATION_CLIP, i);
+            ((v->transfer_data == NULL) == (v->transfer_data_bytes == 0u)) &&
+            (v->transfer_data_bytes == 0u || v->transfer != NULL), QUANTAPDF_VALIDATION_CLIP, i);
         VALUE(mask ?
             ((v->knockout == 0 || v->knockout == 1) &&
              (v->member_opacities == NULL ||

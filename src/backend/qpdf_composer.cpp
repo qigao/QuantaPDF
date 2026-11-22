@@ -1730,25 +1730,30 @@ QPDFObjectHandle precise_mask_number(double value)
 }
 
 QPDFObjectHandle make_mask_transfer(
-    QPDF& pdf, const quantapdf_mask_transfer* nodes, const unsigned char* samples, std::size_t index)
+    QPDF& pdf, const quantapdf_mask_transfer* nodes, const unsigned char* data, std::size_t index)
 {
     const auto& transfer = nodes[index];
     const bool sampled = transfer.sample_count != 0u;
+    const bool calculator = transfer.program_size != 0u;
     const bool stitched = transfer.end != index + 1u;
     QPDFObjectHandle stream;
     auto function = QPDFObjectHandle::newDictionary();
-    if (sampled) {
-        const std::size_t size = (transfer.sample_count * transfer.sample_bits + 7u) / 8u;
-        stream = pdf.newStream(std::string(
-            reinterpret_cast<const char*>(samples + transfer.sample_offset), size));
+    if (sampled || calculator) {
+        const std::size_t size = sampled
+            ? (transfer.sample_count * transfer.sample_bits + 7u) / 8u : transfer.program_size;
+        const std::size_t offset = sampled ? transfer.sample_offset : transfer.program_offset;
+        stream = pdf.newStream(std::string(reinterpret_cast<const char*>(data + offset), size));
         function = stream.getDict();
     }
-    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(sampled ? 0 : stitched ? 3 : 2));
+    const int kind = sampled ? 0 : calculator ? 4 : stitched ? 3 : 2;
+    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(kind));
     function.replaceKey("/Domain", QPDFObjectHandle::newArray(
         {precise_mask_number(transfer.domain[0]), precise_mask_number(transfer.domain[1])}));
     if (transfer.has_range)
         function.replaceKey("/Range", QPDFObjectHandle::newArray(
             {precise_mask_number(transfer.range[0]), precise_mask_number(transfer.range[1])}));
+    if (calculator)
+        return stream;
     if (sampled) {
         function.replaceKey("/Size", QPDFObjectHandle::newArray(
             {QPDFObjectHandle::newInteger(static_cast<long long>(transfer.sample_count))}));
@@ -1765,7 +1770,7 @@ QPDFObjectHandle make_mask_transfer(
         auto bounds = QPDFObjectHandle::newArray();
         auto encode = QPDFObjectHandle::newArray();
         for (std::size_t child = index + 1u; child < transfer.end; child = nodes[child].end) {
-            children.appendItem(make_mask_transfer(pdf, nodes, samples, child));
+            children.appendItem(make_mask_transfer(pdf, nodes, data, child));
             if (nodes[child].end < transfer.end)
                 bounds.appendItem(precise_mask_number(nodes[child].upper_bound));
             encode.appendItem(precise_mask_number(nodes[child].encode[0]));
@@ -2529,7 +2534,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                             soft_mask.replaceKey("/BC", backdrop);
                         }
                         if (mask_group->transfer != nullptr)
-                            soft_mask.replaceKey("/TR", make_mask_transfer(pdf, mask_group->transfer, mask_group->transfer_samples, 0u));
+                            soft_mask.replaceKey("/TR", make_mask_transfer(pdf, mask_group->transfer, mask_group->transfer_data, 0u));
                         soft_mask.replaceKey("/G", make_clip_mask_group(pdf, ir, page, *mask_group));
                         object->replaceKey("/SMask", soft_mask);
                     }

@@ -113,7 +113,7 @@ inline constexpr const char* stitched_alpha_mask =
     "<< /FunctionType 2 /Domain [0 1] /C0 [.25] /C1 [.25] /N 1 >> "
     "<< /FunctionType 2 /Domain [0 1] /N 1 >>] >> >>";
 
-struct sampled_transfer_fixture {
+struct stream_transfer_fixture {
     std::string dictionary;
     std::string bytes;
     int child=-1;
@@ -138,7 +138,7 @@ inline constexpr const char* sampled_stitch_fills =
     "0 g 0 0 .5 2.5 re f .25 g .5 0 .5 2.5 re f .28125 g 1 0 .5 2.5 re f .5 g 1.5 0 .5 2.5 re f "
     ".5625 g 2 0 .5 2.5 re f .6875 g 2.5 0 .5 2.5 re f .8125 g 3 0 .5 2.5 re f .9375 g 3.5 0 .5 2.5 re f";
 
-inline std::vector<sampled_transfer_fixture> sampled_stitch_tables()
+inline std::vector<stream_transfer_fixture> sampled_stitch_tables()
 {
     return {{"<< /FunctionType 0 /Domain [.25 .75] /Range [.125 .75] /Size [3] "
              "/BitsPerSample 12 /Encode [3 -1] /Decode [1 0] >>",pack_samples(12u,{4095u,0u,4095u}),0},
@@ -146,9 +146,28 @@ inline std::vector<sampled_transfer_fixture> sampled_stitch_tables()
              "/BitsPerSample 1 /Order 3 /Encode [0 4] >>",pack_samples(1u,{0u,1u,0u,1u}),1}};
 }
 
+inline stream_transfer_fixture calculator_function(std::string program,int child=-1)
+{
+    return {"<< /FunctionType 4 /Domain [0 1] /Range [0 1] >>",std::move(program),child};
+}
+
+inline constexpr const char* calculator_piecewise =
+    "{ % square the lower interval\n dup .5 lt { dup mul } { neg 1 add } ifelse }\n";
+
+inline std::vector<stream_transfer_fixture> calculator_stitch_streams()
+{
+    return {calculator_function(calculator_piecewise,0),
+        {"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 1 >>",
+         pack_samples(1u,{0u,1u}),1}};
+}
+
+inline constexpr const char* calculator_stitch_mask =
+    "<< /S /Luminosity /BC [.25] /TR << /FunctionType 3 /Domain [0 1] "
+    "/Bounds [.5] /Encode [0 1 1 0] /Functions [null null] >> >>";
+
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
     const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>",
-    bool cyclic_transfer=false,const std::vector<sampled_transfer_fixture>& tables={})
+    bool cyclic_transfer=false,const std::vector<stream_transfer_fixture>& streams={})
 {
     auto pdf=QPDF::create();
     const auto font_fixture=native_ttf_fixture();
@@ -161,12 +180,12 @@ inline original create_alpha_group(const std::string& page_content, const std::s
     auto form_dict=form.getDict(), entries=Object::parse(form_dictionary);
     for(const auto& key:entries.getKeys())form_dict.replaceKey(key,entries.getKey(key));
     auto mask=Object::parse(soft_mask);
-    for(const auto& table:tables) {
-        auto stream=pdf->newStream(table.bytes);
-        auto dict=stream.getDict(),keys=Object::parse(table.dictionary);
+    for(const auto& fixture:streams) {
+        auto stream=pdf->newStream(fixture.bytes);
+        auto dict=stream.getDict(),keys=Object::parse(fixture.dictionary);
         for(const auto& key:keys.getKeys())dict.replaceKey(key,keys.getKey(key));
-        if(table.child<0)mask.replaceKey("/TR",stream);
-        else mask.getKey("/TR").getKey("/Functions").setArrayItem(table.child,stream);
+        if(fixture.child<0)mask.replaceKey("/TR",stream);
+        else mask.getKey("/TR").getKey("/Functions").setArrayItem(fixture.child,stream);
     }
     if(cyclic_transfer) {
         auto transfer=pdf->makeIndirectObject(mask.getKey("/TR"));

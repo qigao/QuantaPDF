@@ -2,6 +2,7 @@
 #include "backend/qpdf_text.h"
 #include "backend/qpdf_document_internal.h"
 #include "backend/qpdf_image_stream.h"
+#include "resource/mask_calculator.h"
 
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
@@ -86,12 +87,162 @@ double rgb_luminosity(const std::array<double,3u>& rgb)
 
 constexpr size_t mask_transfer_max_depth=32u;
 constexpr size_t mask_transfer_max_nodes=1024u;
-constexpr size_t mask_transfer_sample_bytes=1024u*1024u;
+constexpr size_t mask_transfer_data_bytes=1024u*1024u;
 
 struct staged_mask_transfer {
     std::vector<quantapdf_mask_transfer> nodes;
-    std::vector<unsigned char> samples;
+    std::vector<unsigned char> data;
 };
+
+constexpr size_t calculator_max_stream_bytes=65536u;
+constexpr size_t calculator_max_instructions=4096u;
+
+class mask_calculator_parser {
+public:
+    explicit mask_calculator_parser(std::string_view program): source(program) {}
+
+    std::vector<qp_calculator_instruction> compile()
+    {
+        advance();
+        read_block(0u);
+        admit(token.empty());
+        return std::move(instructions);
+    }
+
+private:
+    static bool space(char c)
+    {
+        return c=='\0' || c=='\t' || c=='\n' || c=='\f' || c=='\r' || c==' ';
+    }
+
+    void advance()
+    {
+        while(cursor<source.size()) {
+            if(space(source[cursor]))++cursor;
+            else if(source[cursor]=='%') {
+                while(cursor<source.size() && source[cursor]!='\n' && source[cursor]!='\r')++cursor;
+            } else break;
+        }
+        const size_t start=cursor;
+        if(cursor<source.size()) {
+            const char c=source[cursor++];
+            if(c!='{' && c!='}') {
+                while(cursor<source.size() && !space(source[cursor]) &&
+                      source[cursor]!='{' && source[cursor]!='}' && source[cursor]!='%')++cursor;
+            }
+        }
+        token=source.substr(start,cursor-start);
+    }
+
+    size_t emit(qp_calculator_opcode opcode,double value=0.0)
+    {
+        admit(instructions.size()<calculator_max_instructions,QUANTAPDF_ERROR_UNSUPPORTED);
+        instructions.push_back({value,static_cast<uint32_t>(opcode),0u});
+        return instructions.size()-1u;
+    }
+
+    void read_block(size_t depth)
+    {
+        admit(depth<mask_transfer_max_depth,QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(token=="{");
+        advance();
+        while(token!="}") {
+            admit(!token.empty());
+            if(token!="{") {
+                read_operand_or_operator();
+                advance();
+                continue;
+            }
+            const size_t condition=emit(QP_CALC_JUMP_IF_FALSE);
+            read_block(depth+1u);
+            if(token=="{") {
+                const size_t end=emit(QP_CALC_JUMP);
+                instructions[condition].target=static_cast<uint32_t>(instructions.size());
+                read_block(depth+1u);
+                admit(token=="ifelse");
+                instructions[end].target=static_cast<uint32_t>(instructions.size());
+            } else {
+                admit(token=="if");
+                instructions[condition].target=static_cast<uint32_t>(instructions.size());
+            }
+            advance();
+        }
+        advance();
+    }
+
+    void read_operand_or_operator()
+    {
+        if(token=="true" || token=="false") {
+            emit(QP_CALC_PUSH_BOOL,token=="true"?1.0:0.0);
+            return;
+        }
+        switch(token.front()) {
+        case '+': case '-': case '.': case '0': case '1': case '2':
+        case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+            read_number();
+            return;
+        default:
+            break;
+        }
+#define QP_CALC_PARSE(name) if(token==#name) {emit(QP_CALC_OP_##name);return;}
+        QP_CALCULATOR_OPERATORS(QP_CALC_PARSE)
+#undef QP_CALC_PARSE
+        throw rejected{QUANTAPDF_ERROR_FORMAT};
+    }
+
+    void read_number()
+    {
+        size_t i=(token.front()=='+' || token.front()=='-')?1u:0u;
+        bool real=false,has_digit=false;
+        for(;i<token.size();++i) {
+            const char c=token[i];
+            if(c=='.' && !real)real=true;
+            else {
+                admit(c>='0' && c<='9');
+                has_digit=true;
+            }
+        }
+        admit(has_digit);
+        if(!real) {
+            const char *first=token.data()+(token.front()=='+'?1:0);
+            int32_t integer=0;
+            const auto result=std::from_chars(first,token.data()+token.size(),integer);
+            if(result.ec==std::errc{}) {
+                emit(QP_CALC_PUSH_INT,static_cast<double>(integer));
+                return;
+            }
+        }
+        emit(QP_CALC_PUSH_REAL,finite_number(Obj::newReal(std::string(token))));
+    }
+
+    std::string_view source,token;
+    size_t cursor=0u;
+    std::vector<qp_calculator_instruction> instructions;
+};
+
+void read_calculator_mask_function(Obj function,quantapdf_mask_transfer& node,
+    std::vector<unsigned char>& data,size_t& bytes_left)
+{
+    admit(node.has_range);
+    const auto program=quantapdf::detail::qpdf_read_stream(function,
+        std::min(bytes_left,calculator_max_stream_bytes),qpdf_dl_generalized);
+    admit(!program.empty());
+    const std::string_view source(reinterpret_cast<const char *>(program.data()),program.size());
+    const auto instructions=mask_calculator_parser(source).compile();
+    const size_t code_bytes=instructions.size()*sizeof(qp_calculator_instruction);
+    admit(code_bytes<=bytes_left-program.size(),QUANTAPDF_ERROR_UNSUPPORTED);
+
+    node.program_offset=data.size();
+    node.program_size=program.size();
+    data.insert(data.end(),program.begin(),program.end());
+    node.instruction_offset=data.size();
+    node.instruction_count=instructions.size();
+    if(code_bytes!=0u) {
+        const auto *first=reinterpret_cast<const unsigned char *>(instructions.data());
+        data.insert(data.end(),first,first+code_bytes);
+    }
+    bytes_left-=program.size()+code_bytes;
+}
 
 void read_sampled_mask_function(Obj function,Obj dict,quantapdf_mask_transfer& node,
     std::vector<unsigned char>& samples,size_t& bytes_left)
@@ -147,8 +298,8 @@ void read_mask_function(Obj function,staged_mask_transfer& transfer,size_t& byte
     Obj type=dict.getKey("/FunctionType");
     admit(type.isInteger());
     const auto kind=type.getIntValue();
-    admit(kind==0 || kind==2 || kind==3,QUANTAPDF_ERROR_UNSUPPORTED);
-    admit((kind==0)==function.isStream());
+    admit(kind==0 || kind==2 || kind==3 || kind==4,QUANTAPDF_ERROR_UNSUPPORTED);
+    admit((kind==0 || kind==4)==function.isStream());
 
     quantapdf_mask_transfer node{};
     Obj domain=dict.getKey("/Domain"),range=dict.getKey("/Range");
@@ -162,8 +313,9 @@ void read_mask_function(Obj function,staged_mask_transfer& transfer,size_t& byte
         node.has_range=1;
     }
     const size_t index=nodes.size();
-    if(kind==0) {
-        read_sampled_mask_function(function,dict,node,transfer.samples,bytes_left);
+    if(function.isStream()) {
+        if(kind==0)read_sampled_mask_function(function,dict,node,transfer.data,bytes_left);
+        else read_calculator_mask_function(function,node,transfer.data,bytes_left);
         node.end=index+1u;
         nodes.push_back(node);
         return;
@@ -430,7 +582,7 @@ struct admission {
     size_t page_w,page_h;
     size_t source_pixels=0,drawn_pixels=0;
     size_t content_bytes=0;
-    size_t mask_sample_bytes_left=mask_transfer_sample_bytes;
+    size_t mask_transfer_bytes_left=mask_transfer_data_bytes;
     bool has_mask_groups=false;
     std::vector<staged_image> draws;
     std::vector<staged_path> painted_paths;
@@ -1468,7 +1620,7 @@ private:
         admit((mask_type.isNull() || mask_type.isNameAndEquals("/Mask")) &&
               (luminosity || subtype.isNameAndEquals("/Alpha")) && form.isStream(),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        auto transfer=read_mask_transfer(mask.getKey("/TR"),target.mask_sample_bytes_left);
+        auto transfer=read_mask_transfer(mask.getKey("/TR"),target.mask_transfer_bytes_left);
 
         Obj dict=form.getDict(), type=dict.getKey("/Type"), form_type=dict.getKey("/FormType");
         admit((type.isNull() || type.isNameAndEquals("/XObject")) &&
@@ -2262,11 +2414,11 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
                     admit(root.transfer!=nullptr,QUANTAPDF_ERROR_NOMEM);
                     std::memcpy(root.transfer,definition.transfer.nodes.data(),bytes);
                 }
-                if(!definition.transfer.samples.empty()) {
-                    root.transfer_sample_bytes=definition.transfer.samples.size();
-                    root.transfer_samples=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(root.transfer_sample_bytes));
-                    admit(root.transfer_samples!=nullptr,QUANTAPDF_ERROR_NOMEM);
-                    std::memcpy(root.transfer_samples,definition.transfer.samples.data(),root.transfer_sample_bytes);
+                if(!definition.transfer.data.empty()) {
+                    root.transfer_data_bytes=definition.transfer.data.size();
+                    root.transfer_data=static_cast<unsigned char *>(QP_SOURCE_C_MALLOC(root.transfer_data_bytes));
+                    admit(root.transfer_data!=nullptr,QUANTAPDF_ERROR_NOMEM);
+                    std::memcpy(root.transfer_data,definition.transfer.data.data(),root.transfer_data_bytes);
                 }
                 root.member_count=definition.group_fills.size();
                 if(root.member_count!=0u) {

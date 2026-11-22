@@ -355,6 +355,47 @@ static int alpha_group_cases(const std::string& filename)
         }
     }
 
+    const auto calculator_alpha=create_alpha_group("/Alpha gs 0 0 12 4 re f",
+        "/Quarter gs 0 0 1 3 re f /Half gs 1 0 1 3 re f /Inert gs 2 0 2 3 re f",
+        alpha_form,"<< /S /Alpha >>",false,{calculator_function(calculator_piecewise)});
+    CHECK(render(calculator_alpha,144u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const size_t pixel=i/3u,x=pixel%24u,y=pixel/24u;
+        const unsigned expected=y>=3u && x>=1u && x<5u?(x<3u?239u:128u):255u;
+        CHECK(actual[i]==expected);
+    }
+
+    const auto calculator_stitch=create_alpha_group("/Alpha gs 0 0 12 4 re f",
+        ".125 g .5 0 1 2.5 re f .5 g 1.5 0 1 2.5 re f .75 g 2.5 0 1 2.5 re f",
+        luminosity_form("/DeviceGray").c_str(),calculator_stitch_mask,false,calculator_stitch_streams());
+    CHECK(render(calculator_stitch,144u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const size_t pixel=i/3u,x=pixel%24u,y=pixel/24u;
+        const unsigned expected=y>=3u && x>=2u && x<6u?(x<4u?239u:0u):128u;
+        CHECK(actual[i]==expected);
+    }
+
+    const auto calculator_ops=create_alpha_group("/Alpha gs 0 0 12 4 re f","",
+        alpha_form,"<< /S /Alpha >>",false,{calculator_function(
+        "{ pop true "
+        "2 3 add 5 eq and 3 2 sub 1 eq and 2 3 mul 6 eq and 1 2 div .5 eq and "
+        "-3 abs 3 eq and -3 neg 3 eq and -.5 round 0 eq and "
+        ".5 ceiling 1 eq and -.5 floor -1 eq and -1.5 truncate -1 eq and "
+        "+04.9 cvi 2 idiv 2 eq and 3 cvr .5 add 3.5 eq and "
+        "8 3 mod 2 eq and -5 2 idiv -2 eq and "
+        "30 sin .49 gt and 60 cos .51 lt and 1 0 atan 89 gt and "
+        "2 3 exp 8 eq and 4 sqrt 2 eq and 10 log 1 eq and 1 ln 0 eq and "
+        "-1 -31 bitshift 1 eq and -2147483648 -2147483648 bitshift 0 eq and "
+        "-1 not 0 eq and 5 3 and 1 eq and 4 2 or 6 eq and 5 3 xor 6 eq and "
+        "true false or and true true xor not and 1 true ne and 1 1 ge and 1 1 le and "
+        "2 1 copy eq and 2 3 exch 2 eq exch 3 eq and and "
+        "2 3 1 index 2 eq exch 3 eq and exch 2 eq and and "
+        "1 2 3 3 1 roll 2 eq exch 1 eq and exch 3 eq and and "
+        "1 2 3 3 -1 roll 1 eq exch 3 eq and exch 2 eq and and "
+        "{ false { 1 0 div } if .5 } { .125 } ifelse }")});
+    CHECK(render(calculator_ops,72u,actual)==EXIT_SUCCESS);
+    CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==128u;}));
+
     std::string many_fills;
     for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
     many_fills+="0 0 1 1 re f";
@@ -404,7 +445,21 @@ static int alpha_group_cases(const std::string& filename)
         " /Functions [null] >> >>",true),72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
         "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [] /Encode [0 1]"
-        " /Functions [<< /FunctionType 4 >>] >> >>"),72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        " /Functions [<< /FunctionType 4 >>] >> >>"),72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    for(const char* invalid : {"{ 1 0 div }","{ pop pop }","{ pop true }","{ pop 2 cvr 2 idiv }",
+        "{ 1 }","{ true { .25 } }","{ 1e-2 mul }","{ missing }"}) {
+        CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+            "<< /S /Alpha >>",false,{calculator_function(invalid)}),
+            72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    }
+    std::string full_stack="{";
+    for(unsigned i=0u;i<99u;++i)full_stack+=" dup";
+    for(unsigned i=0u;i<99u;++i)full_stack+=" pop";
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+        "<< /S /Alpha >>",false,{calculator_function(full_stack+" }")}),72u,actual)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+        "<< /S /Alpha >>",false,{calculator_function("{ dup "+full_stack.substr(1u)+" }")}),
+        72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,"<< /S /Alpha >>",false,
         {{"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [3] /BitsPerSample 12 >>",
           pack_samples(12u,{4095u,0u})}}),72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);

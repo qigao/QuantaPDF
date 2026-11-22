@@ -4976,8 +4976,9 @@ static int content_stream_source_contracts(
 static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults)
 {
     using namespace native_graphics_fixture;
-    const auto sampled_tables=sampled_stitch_tables();
-    const std::vector<sampled_transfer_fixture> no_tables;
+    const auto sampled_streams=sampled_stitch_tables();
+    const auto calculator_streams=calculator_stitch_streams();
+    const std::vector<stream_transfer_fixture> no_streams;
     const struct {
         const char *content;
         size_t nodes;
@@ -4985,7 +4986,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const char *mask=nullptr;
         const char *space=nullptr;
         size_t function_nodes=0u;
-        bool sampled=false;
+        const std::vector<stream_transfer_fixture>* streams=nullptr;
     } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
@@ -5007,7 +5008,9 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         {"0 0 4 3 re f",6u,false,false,stitched_alpha_mask,nullptr,3u},
         {stitched_luminosity_fills,12u,false,false,stitched_luminosity_mask,"/DeviceGray",5u},
         {".25 g 0 0 2 2.5 re f .8125 g 2 0 2 2.5 re f",8u,false,false,
-         sampled_stitch_mask,"/DeviceGray",3u,true},
+         sampled_stitch_mask,"/DeviceGray",3u,&sampled_streams},
+        {".125 g 0 0 2 2.5 re f .75 g 2 0 2 2.5 re f",8u,false,false,
+         calculator_stitch_mask,"/DeviceGray",3u,&calculator_streams},
     };
     for(const auto& test:cases) {
         const bool luminosity=test.space!=nullptr;
@@ -5016,7 +5019,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const auto sample=create_alpha_group(
             test.nodes==1u?"/Alpha gs 0 0 12 4 re f":"q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q",
             test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>",
-            false,test.sampled?sampled_tables:no_tables);
+            false,test.streams!=nullptr?*test.streams:no_streams);
         auto caps=defaults;
         caps.max_content_bytes=sample.decoded_bytes;
         quantapdf_qpdf_document *document=nullptr;
@@ -5050,7 +5053,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                                                QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA) &&
                   (group->member_opacities!=nullptr)==test.partial && bool(group->knockout)==test.knockout &&
                   group->transfer_count==test.function_nodes &&
-                  group->transfer_sample_bytes==(test.sampled?6u:0u));
+                  (group->transfer_data_bytes!=0u)==(test.streams!=nullptr));
             unsigned char *encoded=nullptr;
             size_t encoded_size=0u;
             CHECK(quantapdf_qpdf_compose(&ir,&encoded,&encoded_size)==QUANTAPDF_OK);
@@ -5072,9 +5075,9 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                   copied_group->mask_mode==group->mask_mode &&
                   copied_group->backdrop_luminosity==group->backdrop_luminosity &&
                   copied_group->transfer_count==test.function_nodes &&
-                  copied_group->transfer_sample_bytes==group->transfer_sample_bytes);
-            if(test.sampled)CHECK(std::memcmp(group->transfer_samples,copied_group->transfer_samples,
-                                            group->transfer_sample_bytes)==0);
+                  copied_group->transfer_data_bytes==group->transfer_data_bytes);
+            if(test.streams!=nullptr)CHECK(std::memcmp(group->transfer_data,copied_group->transfer_data,
+                                                     group->transfer_data_bytes)==0);
             for(size_t n=0u;n<test.function_nodes;++n) {
                 const auto& a=group->transfer[n];
                 const auto& b=copied_group->transfer[n];
@@ -5086,7 +5089,9 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
                       a.sample_offset==b.sample_offset && a.sample_count==b.sample_count &&
                       a.sample_bits==b.sample_bits && a.sample_order==b.sample_order &&
                       a.sample_encode[0]==b.sample_encode[0] && a.sample_encode[1]==b.sample_encode[1] &&
-                      a.sample_decode[0]==b.sample_decode[0] && a.sample_decode[1]==b.sample_decode[1]);
+                      a.sample_decode[0]==b.sample_decode[0] && a.sample_decode[1]==b.sample_decode[1] &&
+                      a.program_offset==b.program_offset && a.program_size==b.program_size &&
+                      a.instruction_offset==b.instruction_offset && a.instruction_count==b.instruction_count);
             }
             for(size_t branch=0u;branch<group->member_count;++branch) {
                 if(test.partial)CHECK(copied_group->member_opacities[branch]==group->member_opacities[branch]);
