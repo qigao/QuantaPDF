@@ -33,7 +33,10 @@ struct image_colors {
     std::vector<unsigned char> palette;
 
     bool indexed() const { return palette_channels != 0u; }
+    unsigned color_channels() const { return indexed() ? palette_channels : samples.channels; }
+    const unsigned char *palette_entry(size_t index) const;
     const unsigned char *indexed_color(size_t x, size_t y) const;
+    void convert_cmyk_palette();
     std::array<unsigned char, 3u> rgb(size_t x, size_t y) const;
 };
 
@@ -58,7 +61,7 @@ struct image_soft_mask {
 };
 
 image_soft_mask qpdf_read_soft_mask(QPDFObjectHandle mask, const image_colors& colors, size_t pixel_limit);
-std::array<double, 3u> image_unblend_matte(const image_samples& samples,
+std::array<double, 3u> image_unblend_matte(const image_colors& colors,
     const std::array<double, 4u>& matte, size_t x, size_t y, double alpha);
 
 struct device_image_samples {

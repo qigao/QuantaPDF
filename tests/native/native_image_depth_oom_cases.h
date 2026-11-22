@@ -165,17 +165,28 @@ static int native_stencil_source_contract(const quantapdf_qpdf_page_limits& defa
     return EXIT_SUCCESS;
 }
 
-static int native_soft_mask_source_contract(const quantapdf_qpdf_page_limits& defaults, bool matte)
+enum class matte_fixture { none, direct, indexed };
+
+static int native_soft_mask_source_contract(const quantapdf_qpdf_page_limits& defaults, matte_fixture kind)
 {
     using namespace native_image_depth;
+    const bool matte = kind != matte_fixture::none;
+    const bool indexed = kind == matte_fixture::indexed;
     specimen base;
     base.height = 1u;
     base.width = matte ? 2u : 1u;
     base.samples = matte ? std::vector{170u, 255u} : std::vector{255u};
     base.rotation = 90;
+    const indexed_palette palette{"/DeviceGray", 2u, std::string("\x00\xaa\xff", 3u)};
+    if (indexed) {
+        base.bits = 2u;
+        base.samples = {1u, 2u};
+    }
+    const char *entries = indexed ? "/Interpolate true /Matte [2]" :
+        matte ? "/Interpolate true /Matte [1]" : "/Interpolate true";
     const image_mask mask{2u, 1u, matte ? std::string("\x55\x55\xaa\xaa", 4u) : std::string("\x00\x81\x80\x00", 4u),
-        matte ? "/Interpolate true /Matte [1]" : "/Interpolate true", true, 16u};
-    const auto pdf = create(base, fault::none, "[0 0 2 1]", "q 2 0 0 1 0 0 cm /I Do Q", nullptr, &mask);
+        entries, true, 16u};
+    const auto pdf = create(base, fault::none, "[0 0 2 1]", "q 2 0 0 1 0 0 cm /I Do Q", indexed ? &palette : nullptr, &mask);
     quantapdf_qpdf_document *raw = nullptr;
     CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(pdf.data()),
         pdf.size(), "", &raw) == QUANTAPDF_OK);
@@ -234,8 +245,9 @@ static int native_image_depth_source_contracts(const quantapdf_qpdf_page_limits&
     CHECK(native_image_depth_source_contract(defaults, 1u, true) == EXIT_SUCCESS);
     CHECK(native_image_depth_source_contract(defaults, 1u, true, true) == EXIT_SUCCESS);
     CHECK(native_stencil_source_contract(defaults) == EXIT_SUCCESS);
-    CHECK(native_soft_mask_source_contract(defaults, false) == EXIT_SUCCESS);
-    CHECK(native_soft_mask_source_contract(defaults, true) == EXIT_SUCCESS);
+    CHECK(native_soft_mask_source_contract(defaults, matte_fixture::none) == EXIT_SUCCESS);
+    CHECK(native_soft_mask_source_contract(defaults, matte_fixture::direct) == EXIT_SUCCESS);
+    CHECK(native_soft_mask_source_contract(defaults, matte_fixture::indexed) == EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 #endif

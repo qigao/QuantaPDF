@@ -75,7 +75,7 @@ struct image_value {
 
 image_value decode_image(Obj image, Obj resources, budget& limits, double opacity)
 {
-    const auto colors = read_image_colors(image, resources, (max_pixel_bytes - limits.pixels) / 4u);
+    auto colors = read_image_colors(image, resources, (max_pixel_bytes - limits.pixels) / 4u);
     const auto& source = colors.samples;
     const size_t count = static_cast<size_t>(source.width) * source.height;
     Obj dict = image.getDict();
@@ -95,6 +95,7 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
     } else {
         color_key = quantapdf::detail::qpdf_read_color_key(mask, source);
     }
+    if (!matte) colors.convert_cmyk_palette();
     image_value result;
     result.pixels.resize(count * 4u);
     bool has_alpha = false;
@@ -116,7 +117,7 @@ image_value decode_image(Obj image, Obj resources, budget& limits, double opacit
             has_alpha = has_alpha || final_alpha != 255u;
             const size_t offset = (y * source.width + x)*4u;
             if (matte) {
-                const auto rgb = quantapdf::detail::image_unblend_matte(source, *matte, x, y, a);
+                const auto rgb = quantapdf::detail::image_unblend_matte(colors, *matte, x, y, a);
                 for (unsigned c = 0; c < 3; ++c)
                     result.pixels[offset+c] = static_cast<unsigned char>(rgb[c] * a * opacity * 255.0 + 0.5);
             } else {

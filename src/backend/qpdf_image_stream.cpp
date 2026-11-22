@@ -314,11 +314,31 @@ Obj resolve_image_color_space(Obj value, Obj resources)
 
 } // namespace
 
+const unsigned char *image_colors::palette_entry(size_t index) const
+{
+    return palette.data() + index * palette_channels;
+}
+
 const unsigned char *image_colors::indexed_color(size_t x, size_t y) const
 {
     const double value = samples.decoded(x, y, 0u);
     const size_t index = static_cast<size_t>(std::clamp(value + 0.5, 0.0, static_cast<double>(high)));
-    return palette.data() + index * palette_channels;
+    return palette_entry(index);
+}
+
+void image_colors::convert_cmyk_palette()
+{
+    if (palette_channels != 4u) return;
+    // Images without Matte can convert each palette entry once.
+    const size_t count = static_cast<size_t>(high) + 1u;
+    for (size_t i = 0u; i < count; ++i) {
+        const unsigned black = palette[4u * i + 3u];
+        for (size_t c = 0u; c < 3u; ++c)
+            palette[3u * i + c] = static_cast<unsigned char>(
+                cmyk_channel(palette[4u * i + c], black, 255u));
+    }
+    palette.resize(3u * count);
+    palette_channels = 3u;
 }
 
 std::array<unsigned char, 3u> image_colors::rgb(size_t x, size_t y) const
@@ -381,17 +401,6 @@ image_colors qpdf_read_image_colors(Obj image, Obj resources,
         }
         require(result.palette.size() == length);
         result.palette_channels = base_channels;
-        if (base_channels == 4u) {
-            // Convert each palette entry once, before image sampling.
-            for (size_t i = 0u; i < count; ++i) {
-                const unsigned black = result.palette[4u * i + 3u];
-                for (size_t c = 0u; c < 3u; ++c)
-                    result.palette[3u * i + c] = static_cast<unsigned char>(
-                        cmyk_channel(result.palette[4u * i + c], black, 255u));
-            }
-            result.palette.resize(3u * count);
-            result.palette_channels = 3u;
-        }
         channels = 1u;
     } else {
         channels = channels_for(space);
@@ -484,15 +493,24 @@ image_soft_mask qpdf_read_soft_mask(Obj mask, const image_colors& colors, size_t
     std::optional<std::array<double, 4u>> matte;
     Obj value = dict.getKey("/Matte");
     if (!value.isNull()) {
-        require(!colors.indexed(), QUANTAPDF_ERROR_UNSUPPORTED);
         require(value.isArray() && value.getArrayNItems() == static_cast<int>(colors.samples.channels));
         matte.emplace();
-        for (unsigned c = 0u; c < colors.samples.channels; ++c) {
-            Obj component = value.getArrayItem(static_cast<int>(c));
+        if (colors.indexed()) {
+            Obj component = value.getArrayItem(0);
             require(component.isNumber());
-            const auto number = component.getNumericValue();
-            require(number >= 0.0 && number <= 1.0);
-            (*matte)[c] = number;
+            const double index = component.getNumericValue();
+            require(index >= 0.0 && index <= colors.high && std::trunc(index) == index);
+            const auto *entry = colors.palette_entry(static_cast<size_t>(index));
+            for (unsigned c = 0u; c < colors.palette_channels; ++c)
+                (*matte)[c] = entry[c] / 255.0;
+        } else {
+            for (unsigned c = 0u; c < colors.samples.channels; ++c) {
+                Obj component = value.getArrayItem(static_cast<int>(c));
+                require(component.isNumber());
+                const double number = component.getNumericValue();
+                require(number >= 0.0 && number <= 1.0);
+                (*matte)[c] = number;
+            }
         }
     }
 
@@ -516,18 +534,21 @@ image_soft_mask qpdf_read_soft_mask(Obj mask, const image_colors& colors, size_t
     return {std::move(alpha), matte};
 }
 
-std::array<double, 3u> image_unblend_matte(const image_samples& samples,
+std::array<double, 3u> image_unblend_matte(const image_colors& colors,
     const std::array<double, 4u>& matte, size_t x, size_t y, double alpha)
 {
     if (alpha == 0.0) return {}; // No original color can be recovered at zero opacity.
+    const auto *entry = colors.indexed() ? colors.indexed_color(x, y) : nullptr;
     const auto unblend = [&](unsigned c) {
-        return std::clamp((samples.decoded(x, y, c) - (1.0 - alpha) * matte[c]) / alpha, 0.0, 1.0);
+        const double preblended = entry != nullptr ? entry[c] / 255.0 : colors.samples.decoded(x, y, c);
+        return std::clamp((preblended - (1.0 - alpha) * matte[c]) / alpha, 0.0, 1.0);
     };
-    if (samples.channels == 1u) {
+    const unsigned channels = colors.color_channels();
+    if (channels == 1u) {
         const double gray = unblend(0u);
         return {gray, gray, gray};
     }
-    if (samples.channels == 4u) {
+    if (channels == 4u) {
         const double black = unblend(3u);
         return {cmyk_channel(unblend(0u), black, 1.0), cmyk_channel(unblend(1u), black, 1.0),
             cmyk_channel(unblend(2u), black, 1.0)};
@@ -537,11 +558,13 @@ std::array<double, 3u> image_unblend_matte(const image_samples& samples,
 
 namespace {
 
-device_image_samples normalize_device_samples(image_samples&& samples, image_alpha_plane alpha,
+device_image_samples normalize_device_samples(image_colors&& colors, image_alpha_plane alpha,
     const std::optional<std::array<double, 4u>>& matte)
 {
-    const bool cmyk = samples.channels == 4u;
-    const int components = cmyk ? 3 : static_cast<int>(samples.channels);
+    auto& samples = colors.samples;
+    const unsigned channels = colors.color_channels();
+    const bool cmyk = channels == 4u;
+    const int components = cmyk ? 3 : static_cast<int>(channels);
     bool identity = !matte;
     bool wide = matte.has_value() || samples.bits == 16u;
     for (unsigned c = 0u; c < samples.channels; ++c) {
@@ -558,11 +581,12 @@ device_image_samples normalize_device_samples(image_samples&& samples, image_alp
     const size_t bytes_per_sample = output_bits / 8u;
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height *
         components * bytes_per_sample;
-    const bool separate_buffer = cmyk || samples.bits != output_bits;
+    const bool separate_buffer = colors.indexed() || cmyk || samples.bits != output_bits;
     std::vector<unsigned char> expanded;
     auto *destination = samples.bytes.data();
     if (separate_buffer) {
-        require(output_size <= image_work_limit - samples.bytes.size() - alpha.bytes.size(), QUANTAPDF_ERROR_UNSUPPORTED);
+        require(output_size <= image_work_limit - samples.bytes.size() - colors.palette.size() - alpha.bytes.size(),
+            QUANTAPDF_ERROR_UNSUPPORTED);
 #ifdef QUANTAPDF_NATIVE_SOURCE_STAGE_OOM_TEST
         quantapdf_source_stage_oom_arm(14u);
 #endif
@@ -580,7 +604,7 @@ device_image_samples normalize_device_samples(image_samples&& samples, image_alp
         for (size_t x = 0u; x < samples.width; ++x) {
             if (matte) {
                 const double opacity = qp_mask_texel(alpha.bytes.data(), y * samples.width + x, wide_alpha) / alpha_maximum;
-                const auto rgb = image_unblend_matte(samples, *matte, x, y, opacity);
+                const auto rgb = image_unblend_matte(colors, *matte, x, y, opacity);
                 for (int c = 0; c < components; ++c)
                     write_sample(static_cast<unsigned>(rgb[c] * maximum + 0.5));
             } else if (cmyk) {
@@ -621,8 +645,10 @@ device_image_samples qpdf_normalize_image_colors(image_colors&& colors, Obj dict
             for (size_t x = 0u; x < samples.width; ++x)
                 alpha.bytes[y * samples.width + x] = image_sample_is_masked(samples, key, x, y) ? 0u : 255u;
     }
-    if (!colors.indexed()) return normalize_device_samples(std::move(colors.samples), std::move(alpha), matte);
+    if (matte || !colors.indexed())
+        return normalize_device_samples(std::move(colors), std::move(alpha), matte);
 
+    colors.convert_cmyk_palette();
     const size_t output_size = static_cast<size_t>(samples.width) * samples.height * colors.palette_channels;
     require(output_size + colors.palette.size() <= image_work_limit - samples.bytes.size() - alpha.bytes.size(),
         QUANTAPDF_ERROR_UNSUPPORTED);

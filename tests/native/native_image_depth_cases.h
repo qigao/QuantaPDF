@@ -400,9 +400,46 @@ static int native_image_depth_cases(const std::string& filename)
     const image_mask short_matte{1u, 1u, std::string(1u, '\xff'), "/Matte [1]", false, 8u};
     CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, nullptr, &short_matte),
         {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
-    matte.entries = "/Matte [1]";
-    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, &gray_palette, &matte),
-        {}, 0u, 0u, QUANTAPDF_ERROR_UNSUPPORTED) == EXIT_SUCCESS);
+    // Both source samples decode to index 1. Different opacities give the
+    // same stored color different unmatted RGB values. Matte itself uses
+    // index 2 directly, independent of the image's reversing Decode.
+    matte_base.bits = 2u;
+    matte_base.samples = {2u, 2u};
+    matte_base.interpolate = true;
+    matte_base.rotation = 90;
+    const indexed_palette matte_rgb{"/DeviceRGB", 3u,
+        std::string("\x00\x00\x00\xff\xaa\xaa\xff\xff\xff\x00\x00\xff", 12u),
+        true, "[3 0]"};
+    matte = {2u, 1u, std::string("\xaa\xaa\x55\x55", 4u),
+        "/Matte [2] /Decode [1 0] /Interpolate true", true, 16u};
+    const std::vector<unsigned char> indexed_matte_page{85u,170u,0u, 128u,159u,32u, 170u,170u,85u};
+    const std::vector<unsigned char> indexed_matte_texels{85u,0u,0u,85u, 170u,85u,85u,170u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, &matte_rgb, &matte),
+        indexed_matte_page, 1u, 3u, QUANTAPDF_OK, &indexed_matte_texels, true, true) == EXIT_SUCCESS);
+
+    matte_base.interpolate = false;
+    matte_base.rotation = 0;
+    matte_base.samples = {1u, 0u};
+    const indexed_palette matte_gray{"/DeviceGray", 2u, std::string("\x00\xaa\xff", 3u)};
+    matte = {2u, 1u, std::string("\xaa\xff", 2u), "/Matte [2.0]", false, 8u};
+    const std::vector<unsigned char> indexed_gray_texels{85u,85u,85u,170u, 0u,0u,0u,255u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, &matte_gray, &matte),
+        {85u,170u,85u, 0u,0u,0u, 0u,0u,0u}, 3u, 1u, QUANTAPDF_OK, &indexed_gray_texels, true, true) == EXIT_SUCCESS);
+
+    for (const char *entries : {"/Matte [3]", "/Matte [-1]", "/Matte [0.5]", "/Matte [0 1 0]"}) {
+        matte.entries = entries;
+        CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, &matte_gray, &matte),
+            {}, 0u, 0u, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
+    }
+
+    matte_base.width = 1u;
+    matte_base.bits = 1u;
+    matte_base.samples = {0u};
+    const indexed_palette matte_cmyk{"/DeviceCMYK", 1u, std::string("\xaa\0\0\xaa\xff\0\0\xff", 8u)};
+    matte = {1u, 1u, std::string(1u, '\x55'), "/Matte [1]", false, 8u};
+    CHECK(execute(matte_base, create(matte_base, fault::none, "[0 0 3 1]", paint, &matte_cmyk, &matte),
+        {85u,255u,85u, 85u,255u,85u, 85u,255u,85u}, 3u, 1u,
+        QUANTAPDF_OK, &unmatted_white, true, true) == EXIT_SUCCESS);
 
     const auto render_only = [&](const std::string& original,
         unsigned width, unsigned height, const std::vector<unsigned char>& reference,
@@ -453,7 +490,7 @@ static int native_image_depth_cases(const std::string& filename)
     stencil.stencil_entries = "/Decode [1 1]";
     CHECK(render_only(create(stencil), 0u, 0u, {}, QUANTAPDF_ERROR_FORMAT) == EXIT_SUCCESS);
 
-    CHECK(rendered == 91u && extracted == 91u && denied == 31u);
+    CHECK(rendered == 94u && extracted == 94u && denied == 34u);
     std::printf("Image depth: %zu full-page RGB matches, %zu extracted bitmap matches, %zu atomic errors\n",
         rendered, extracted, denied);
     return EXIT_SUCCESS;
