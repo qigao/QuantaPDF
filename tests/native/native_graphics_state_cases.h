@@ -279,6 +279,38 @@ static int alpha_group_cases(const std::string& filename)
         CHECK(reference[i]==(x>=1u && x<9u && y>=3u?255u:0u));
     }
 
+    const auto stitched_luminosity=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f",stitched_luminosity_fills,
+        luminosity_form("/DeviceGray").c_str(),stitched_luminosity_mask);
+    for(unsigned dpi:{72u,144u}) {
+        CHECK(render(stitched_luminosity,dpi,actual)==EXIT_SUCCESS);
+        const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+        constexpr unsigned divisor=16u*64u;
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+            unsigned opacity=0u;
+            for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                unsigned value=16u;
+                if(py<2.5 && px>=1.0 && px<4.5) {
+                    constexpr unsigned strips[]={24u,36u,56u,48u};
+                    value=strips[static_cast<size_t>(px)-1u];
+                }
+                opacity+=value;
+            }
+            for(size_t channel=0u;channel<3u;++channel)
+                CHECK(actual[3u*(y*w+x)+channel]==(255u*(divisor-opacity)+divisor/2u)/divisor);
+        }
+    }
+
+    const auto stitched_alpha=create_alpha_group(
+        "/Alpha gs 0 0 12 4 re f","0 0 4 3 re f",alpha_form,stitched_alpha_mask);
+    CHECK(render(stitched_alpha,144u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i) {
+        const size_t pixel=i/3u,x=pixel%24u,y=pixel/24u;
+        CHECK(actual[i]==(x>=1u && x<9u && y>=3u?32u:191u));
+    }
+
     std::string many_fills;
     for(unsigned i=0u;i<67u;++i)many_fills+="10 0 1 1 re f ";
     many_fills+="0 0 1 1 re f";
@@ -317,9 +349,18 @@ static int alpha_group_cases(const std::string& filename)
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
         "<< /S /Alpha /TR << /FunctionType 2 /Domain [0 1] /C0 [0 1] /N 1 >> >>"),
         72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    for(const char *bad : {"<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] >> >>",
+        "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [.5] /Encode [0 1]"
+        " /Functions [<< /FunctionType 2 /Domain [0 1] /N 1 >>] >> >>"}) {
+        CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,bad),
+            72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    }
     CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
-        "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] >> >>"),
-        72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [] /Encode [0 1]"
+        " /Functions [null] >> >>",true),72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,
+        "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [] /Encode [0 1]"
+        " /Functions [<< /FunctionType 4 >>] >> >>"),72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     return EXIT_SUCCESS;
 }
 

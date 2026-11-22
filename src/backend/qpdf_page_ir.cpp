@@ -17,7 +17,6 @@
 #include <cstring>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -85,37 +84,86 @@ double rgb_luminosity(const std::array<double,3u>& rgb)
     return (30.0*rgb[0]+59.0*rgb[1]+11.0*rgb[2])/100.0;
 }
 
-std::optional<quantapdf_mask_transfer> read_mask_transfer(Obj function)
+constexpr size_t mask_transfer_max_depth=32u;
+constexpr size_t mask_transfer_max_nodes=1024u;
+
+void read_mask_function(Obj function,std::vector<quantapdf_mask_transfer>& nodes,
+    std::array<QPDFObjGen,mask_transfer_max_depth>& ancestors,size_t depth)
 {
-    if(function.isNull() || function.isNameAndEquals("/Identity"))return std::nullopt;
+    admit(depth<ancestors.size() && nodes.size()<mask_transfer_max_nodes,
+          QUANTAPDF_ERROR_UNSUPPORTED);
     admit(function.isDictionary(),QUANTAPDF_ERROR_UNSUPPORTED);
+    const auto id=function.getObjGen();
+    if(function.isIndirect())for(size_t i=0u;i<depth;++i)admit(ancestors[i]!=id);
+    ancestors[depth]=id;
     Obj type=function.getKey("/FunctionType");
     admit(type.isInteger());
-    admit(type.getIntValue()==2,QUANTAPDF_ERROR_UNSUPPORTED);
+    const auto kind=type.getIntValue();
+    admit(kind==2 || kind==3,QUANTAPDF_ERROR_UNSUPPORTED);
 
-    quantapdf_mask_transfer transfer{};
+    quantapdf_mask_transfer node{};
     Obj domain=function.getKey("/Domain"),range=function.getKey("/Range");
     admit(domain.isArray() && domain.getArrayNItems()==2);
-    for(int i=0;i<2;++i)transfer.domain[i]=finite_number(domain.getArrayItem(i));
-    admit(transfer.domain[0]<=transfer.domain[1]);
+    for(int i=0;i<2;++i)node.domain[i]=finite_number(domain.getArrayItem(i));
+    admit(node.domain[0]<=node.domain[1]);
     if(!range.isNull()) {
         admit(range.isArray() && range.getArrayNItems()==2);
-        for(int i=0;i<2;++i)transfer.range[i]=finite_number(range.getArrayItem(i));
-        admit(transfer.range[0]<=transfer.range[1]);
-        transfer.has_range=1;
+        for(int i=0;i<2;++i)node.range[i]=finite_number(range.getArrayItem(i));
+        admit(node.range[0]<=node.range[1]);
+        node.has_range=1;
     }
-    Obj c0=function.getKey("/C0"),c1=function.getKey("/C1");
-    admit(c0.isNull() || (c0.isArray() && c0.getArrayNItems()==1));
-    admit(c1.isNull() || (c1.isArray() && c1.getArrayNItems()==1));
-    transfer.c0=c0.isNull()?0.0:finite_number(c0.getArrayItem(0));
-    transfer.c1=c1.isNull()?1.0:finite_number(c1.getArrayItem(0));
-    transfer.exponent=finite_number(function.getKey("/N"));
-    if(transfer.domain[0]<0.0)
-        admit(transfer.exponent==std::trunc(transfer.exponent));
-    if(transfer.exponent<0.0)
-        admit(transfer.domain[0]>0.0 || transfer.domain[1]<0.0);
-    admit(std::isfinite(transfer.c1-transfer.c0),QUANTAPDF_ERROR_UNSUPPORTED);
-    return transfer;
+    const size_t index=nodes.size();
+    if(kind==2) {
+        Obj c0=function.getKey("/C0"),c1=function.getKey("/C1");
+        admit(c0.isNull() || (c0.isArray() && c0.getArrayNItems()==1));
+        admit(c1.isNull() || (c1.isArray() && c1.getArrayNItems()==1));
+        node.c0=c0.isNull()?0.0:finite_number(c0.getArrayItem(0));
+        node.c1=c1.isNull()?1.0:finite_number(c1.getArrayItem(0));
+        node.exponent=finite_number(function.getKey("/N"));
+        if(node.domain[0]<0.0)admit(node.exponent==std::trunc(node.exponent));
+        if(node.exponent<0.0)admit(node.domain[0]>0.0 || node.domain[1]<0.0);
+        admit(std::isfinite(node.c1-node.c0),QUANTAPDF_ERROR_UNSUPPORTED);
+        node.end=index+1u;
+        nodes.push_back(node);
+        return;
+    }
+
+    Obj children=function.getKey("/Functions"),bounds=function.getKey("/Bounds"),
+        encode=function.getKey("/Encode");
+    admit(children.isArray() && bounds.isArray() && encode.isArray());
+    const int count=children.getArrayNItems();
+    admit(count>0);
+    admit(static_cast<size_t>(count)<mask_transfer_max_nodes-index,QUANTAPDF_ERROR_UNSUPPORTED);
+    admit(bounds.getArrayNItems()==count-1 && encode.getArrayNItems()==2*count &&
+          (count==1 || node.domain[0]<node.domain[1]));
+    nodes.push_back(node);
+    double lower=node.domain[0];
+    for(int i=0;i<count;++i) {
+        const bool last=i+1==count;
+        const double upper=last?node.domain[1]:finite_number(bounds.getArrayItem(i));
+        admit(last?lower<=upper:(lower<upper && upper<=node.domain[1]));
+        admit(std::isfinite(upper-lower),QUANTAPDF_ERROR_UNSUPPORTED);
+        const double start=finite_number(encode.getArrayItem(2*i));
+        const double finish=finite_number(encode.getArrayItem(2*i+1));
+        admit(std::isfinite(finish-start),QUANTAPDF_ERROR_UNSUPPORTED);
+        const size_t child=nodes.size();
+        read_mask_function(children.getArrayItem(i),nodes,ancestors,depth+1u);
+        nodes[child].upper_bound=upper;
+        nodes[child].encode[0]=start;
+        nodes[child].encode[1]=finish;
+        lower=upper;
+    }
+    nodes[index].end=nodes.size();
+}
+
+std::vector<quantapdf_mask_transfer> read_mask_transfer(Obj function)
+{
+    std::vector<quantapdf_mask_transfer> nodes;
+    if(!function.isNull() && !function.isNameAndEquals("/Identity")) {
+        std::array<QPDFObjGen,mask_transfer_max_depth> ancestors{};
+        read_mask_function(function,nodes,ancestors,0u);
+    }
+    return nodes;
 }
 
 int64_t page_lattice(Obj number,int64_t ticks)
@@ -256,9 +304,9 @@ struct staged_clip_definition {
     std::vector<staged_mask_fill> group_fills={};
     bool knockout=false,luminosity_mask=false;
     double backdrop_luminosity=0.0;
-    std::optional<quantapdf_mask_transfer> transfer={};
+    std::vector<quantapdf_mask_transfer> transfer={};
 
-    bool is_mask_group() const {return luminosity_mask || transfer.has_value() || !group_fills.empty();}
+    bool is_mask_group() const {return luminosity_mask || !transfer.empty() || !group_fills.empty();}
 };
 
 /* The bounded Stroke samplers still require short leaves. Ordinary Clip
@@ -1363,7 +1411,7 @@ private:
         admit((mask_type.isNull() || mask_type.isNameAndEquals("/Mask")) &&
               (luminosity || subtype.isNameAndEquals("/Alpha")) && form.isStream(),
               QUANTAPDF_ERROR_UNSUPPORTED);
-        const auto transfer=read_mask_transfer(mask.getKey("/TR"));
+        auto transfer=read_mask_transfer(mask.getKey("/TR"));
 
         Obj dict=form.getDict(), type=dict.getKey("/Type"), form_type=dict.getKey("/FormType");
         admit((type.isNull() || type.isNameAndEquals("/XObject")) &&
@@ -1438,8 +1486,8 @@ private:
         Obj knockout=group.getKey("/K");
         const bool is_knockout=!knockout.isNull() && knockout.getBoolValue();
         if(child.order.empty()) {
-            if(luminosity || transfer)
-                return target.append_clip({{},0u,0u,{},is_knockout,luminosity,backdrop_luminosity,transfer});
+            if(luminosity || !transfer.empty())
+                return target.append_clip({{},0u,0u,{},is_knockout,luminosity,backdrop_luminosity,std::move(transfer)});
             reader.complete_clip_contour();
             return target.append_clip({{std::move(reader.pending_path),QUANTAPDF_COMPOSER_FILL_NONZERO}});
         }
@@ -1457,10 +1505,10 @@ private:
                                                 base+child.scoped_clip_membership[i]});
             fills.push_back({clip,fill.alpha,fill.luminosity});
         }
-        if(!luminosity && !transfer && fills.size()==1u && fills.front().opacity==1.0)
+        if(!luminosity && transfer.empty() && fills.size()==1u && fills.front().opacity==1.0)
             return fills.front().clip;
         return target.append_clip({{},0u,0u,std::move(fills),is_knockout,
-                                   luminosity,backdrop_luminosity,transfer});
+                                   luminosity,backdrop_luminosity,std::move(transfer)});
     }
 
     /* The SAME QPDF operator callbacks account for every original m:
@@ -2150,10 +2198,12 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
                     QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA;
                 root.backdrop_luminosity=definition.backdrop_luminosity;
                 root.knockout=definition.knockout;
-                if(definition.transfer) {
-                    root.transfer=static_cast<quantapdf_mask_transfer *>(QP_SOURCE_C_MALLOC(sizeof(*root.transfer)));
+                if(!definition.transfer.empty()) {
+                    root.transfer_count=definition.transfer.size();
+                    const size_t bytes=root.transfer_count*sizeof(*root.transfer);
+                    root.transfer=static_cast<quantapdf_mask_transfer *>(QP_SOURCE_C_MALLOC(bytes));
                     admit(root.transfer!=nullptr,QUANTAPDF_ERROR_NOMEM);
-                    *root.transfer=*definition.transfer;
+                    std::memcpy(root.transfer,definition.transfer.data(),bytes);
                 }
                 root.member_count=definition.group_fills.size();
                 if(root.member_count!=0u) {

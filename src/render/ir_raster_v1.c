@@ -31,8 +31,8 @@ typedef struct qp_mask_group {
     const qp_mask_branch *branches;
     size_t count,id;
     double backdrop;
-    int knockout,luminosity,has_transfer;
-    quantapdf_mask_transfer transfer;
+    int knockout,luminosity;
+    const quantapdf_mask_transfer *transfer;
 } qp_mask_group;
 
 typedef struct qp_raster_draw {
@@ -658,12 +658,13 @@ int quantapdf_native_geometry_allocation_bound_v1(
 }
 
 static int qp_scene_clip_layout(const quantapdf_resource_registry *r,size_t leaves,
-    size_t *out_bytes,int *has_mask_groups)
+    size_t *out_bytes,int *has_mask_groups,size_t *function_count)
 {
     const size_t nodes=r->clip_count,words=leaves/64u+(leaves%64u!=0u);
-    size_t draws,bits,bytes,branches=0u;
+    size_t draws,bits,bytes,branches=0u,functions=0u;
     *out_bytes=0u;
     *has_mask_groups=0;
+    *function_count=0u;
     if(leaves>SIZE_MAX/sizeof(qp_raster_draw) ||
        (words!=0u && nodes>SIZE_MAX/words))return 0;
     draws=leaves*sizeof(qp_raster_draw);bits=nodes*words;
@@ -672,8 +673,9 @@ static int qp_scene_clip_layout(const quantapdf_resource_registry *r,size_t leav
     for(size_t i=0u;i<nodes;++i) {
         const quantapdf_composer_clip_state *clip=&r->clips[i];
         if(clip->kind!=QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL)continue;
-        if(clip->member_count>SIZE_MAX-branches)return 0;
+        if(clip->member_count>SIZE_MAX-branches || clip->transfer_count>SIZE_MAX-functions)return 0;
         branches+=clip->member_count;
+        functions+=clip->transfer_count;
         *has_mask_groups=1;
     }
     if(*has_mask_groups) {
@@ -681,7 +683,10 @@ static int qp_scene_clip_layout(const quantapdf_resource_registry *r,size_t leav
         bytes+=nodes*sizeof(qp_mask_group);
         if(branches>(SIZE_MAX-bytes)/sizeof(qp_mask_branch))return 0;
         bytes+=branches*sizeof(qp_mask_branch);
+        if(functions>(SIZE_MAX-bytes)/sizeof(quantapdf_mask_transfer))return 0;
+        bytes+=functions*sizeof(quantapdf_mask_transfer);
     }
+    *function_count=functions;
     *out_bytes=bytes;
     return 1;
 }
@@ -690,7 +695,8 @@ int quantapdf_native_scene_clip_storage_bound_v1(
     const quantapdf_resource_registry *resources,size_t leaves,size_t *out_bytes)
 {
     int has_mask_groups;
-    return qp_scene_clip_layout(resources,leaves,out_bytes,&has_mask_groups);
+    size_t function_count;
+    return qp_scene_clip_layout(resources,leaves,out_bytes,&has_mask_groups,&function_count);
 }
 
 static int qp_edges_sample_box(const qp_edge *edges,
@@ -1292,14 +1298,38 @@ static int qp_clip_sample(const uint64_t *clip_bits,unsigned clip_mask,
     return next==0?1:-1;
 }
 
-static double qp_mask_transfer_sample(const quantapdf_mask_transfer *transfer,double value)
+static int qp_mask_transfer_eval(const quantapdf_mask_transfer *nodes,size_t index,
+    double value,size_t *work,size_t cap,double *out)
 {
-    const double x=fmin(fmax(value,transfer->domain[0]),transfer->domain[1]);
-    const double power=transfer->c0==transfer->c1?0.0:pow(x,transfer->exponent);
-    double result=power==1.0?transfer->c1:fma(power,transfer->c1-transfer->c0,transfer->c0);
-    if(transfer->has_range)
-        result=fmin(fmax(result,transfer->range[0]),transfer->range[1]);
-    return fmin(fmax(result,0.0),1.0);
+    if(!qp_exact_charge(work,1u,cap))return 0;
+    const quantapdf_mask_transfer *node=&nodes[index];
+    const double x=fmin(fmax(value,node->domain[0]),node->domain[1]);
+    double result;
+    if(node->end==index+1u) {
+        const double power=node->c0==node->c1?0.0:pow(x,node->exponent);
+        result=power==1.0?node->c1:fma(power,node->c1-node->c0,node->c0);
+    } else {
+        double lower=node->domain[0];
+        const quantapdf_mask_transfer *child=node+1;
+        // A boundary belongs to its right interval, including a zero-width last interval.
+        while(x>=child->upper_bound && child->end<node->end) {
+            if(!qp_exact_charge(work,1u,cap))return 0;
+            lower=child->upper_bound;
+            child=&nodes[child->end];
+        }
+        const double upper=child->upper_bound;
+        double encoded=child->encode[0];
+        if(x>lower) {
+            encoded=x==upper?child->encode[1]:
+                fma((x-lower)/(upper-lower),child->encode[1]-child->encode[0],encoded);
+        }
+        if(!qp_mask_transfer_eval(nodes,(size_t)(child-nodes),encoded,work,cap,&result))return 0;
+    }
+    // Child outputs retain their own Range. Soft-mask clipping happens after the root.
+    if(node->has_range)
+        result=fmin(fmax(result,node->range[0]),node->range[1]);
+    *out=result;
+    return 1;
 }
 
 static double qp_mask_group_sample(const qp_mask_group *group,const qp_edge *edges,
@@ -1320,9 +1350,9 @@ static double qp_mask_group_sample(const qp_mask_group *group,const qp_edge *edg
         value+=branch->opacity*(branch->value-value);
         if(group->knockout)break;
     }
-    if(!group->has_transfer)return value;
-    if(!qp_exact_charge(work,1u,cap))return -1.0;
-    return qp_mask_transfer_sample(&group->transfer,value);
+    if(group->transfer==NULL)return value;
+    if(!qp_mask_transfer_eval(group->transfer,0u,value,work,cap,&value))return -1.0;
+    return fmin(fmax(value,0.0),1.0);
 }
 
 static double qp_scene_clip_sample(const qp_raster_draw *draw,const qp_edge *edges,
@@ -1811,7 +1841,7 @@ static quantapdf_status qp_geometry_compile(
     qp_raster_draw *clip_draws=bounded_clips;
     uint64_t *scene_masks=NULL;
     qp_mask_group *scene_groups=NULL;
-    size_t clip_words=0u;
+    size_t clip_words=0u,function_count=0u;
     int has_mask_groups=0;
     quantapdf_status status = QUANTAPDF_ERROR_ARGUMENT;
     const quantapdf_composer_page_state *page;
@@ -1858,7 +1888,7 @@ static quantapdf_status qp_geometry_compile(
     if(scene) {
         clip_count=0u;
         if(!qp_scene_resources(ir,&clip_count) ||
-           !qp_scene_clip_layout(&ir->resources,clip_count,&clip_storage,&has_mask_groups))
+           !qp_scene_clip_layout(&ir->resources,clip_count,&clip_storage,&has_mask_groups,&function_count))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         clip_words=clip_count/64u+(clip_count%64u!=0u);
     }
@@ -2024,9 +2054,11 @@ static quantapdf_status qp_geometry_compile(
         const size_t nodes=ir->resources.clip_count;
         command_pool=(quantapdf_composer_path_command *)(scene_masks+nodes*clip_words);
         qp_mask_branch *branches=NULL;
+        quantapdf_mask_transfer *functions=NULL;
         if(has_mask_groups) {
             scene_groups=(qp_mask_group *)(scene_masks+nodes*clip_words);
-            command_pool=(quantapdf_composer_path_command *)(scene_groups+nodes);
+            functions=(quantapdf_mask_transfer *)(scene_groups+nodes);
+            command_pool=(quantapdf_composer_path_command *)(functions+function_count);
             branches=(qp_mask_branch *)(command_pool+snapshot_count);
         }
         for(size_t node=0u;node<nodes;++node) {
@@ -2039,9 +2071,10 @@ static quantapdf_status qp_geometry_compile(
                 scene_groups[node]=(qp_mask_group){.branches=branches,.count=clip->member_count,
                     .id=node+1u,.backdrop=clip->backdrop_luminosity,
                     .knockout=clip->knockout,.luminosity=luminosity};
-                if(clip->transfer!=NULL) {
-                    scene_groups[node].has_transfer=1;
-                    scene_groups[node].transfer=*clip->transfer;
+                if(clip->transfer_count!=0u) {
+                    scene_groups[node].transfer=functions;
+                    memcpy(functions,clip->transfer,clip->transfer_count*sizeof(*functions));
+                    functions+=clip->transfer_count;
                 }
                 for(size_t m=0u;m<clip->member_count;++m) {
                     const size_t child=(size_t)clip->members[m]-1u;

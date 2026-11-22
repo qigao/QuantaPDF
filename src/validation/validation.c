@@ -210,6 +210,8 @@ quantapdf_status quantapdf_validate_ir(
         const quantapdf_composer_clip_state *v = &r->clips[i];
         const int mask = v->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL;
         const int luminosity = mask && v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+        VALUE(array_valid(v->transfer, v->transfer_count, sizeof(*v->transfer)) &&
+            ((v->transfer == NULL) == (v->transfer_count == 0u)), QUANTAPDF_VALIDATION_CLIP, i);
         VALUE(mask ?
             ((v->knockout == 0 || v->knockout == 1) &&
              (v->member_opacities == NULL ||

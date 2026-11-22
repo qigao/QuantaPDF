@@ -169,7 +169,7 @@ static inline int qp_prepared_resource_closure(
             if(c->commands!=NULL || c->command_count!=0u ||
                ((c->members==NULL)!=(c->member_count==0u)) || c->member_count<minimum ||
                !qp_prepared_bytes(&u->retained_bytes,c->member_count,member_bytes) ||
-               (c->transfer!=NULL && !qp_prepared_bytes(&u->retained_bytes,1u,sizeof(*c->transfer))))
+               !qp_prepared_bytes(&u->retained_bytes,c->transfer_count,sizeof(*c->transfer)))
                 return 0;
             for(size_t j=0u;j<c->member_count;++j) {
                 const size_t id=(size_t)c->members[j];

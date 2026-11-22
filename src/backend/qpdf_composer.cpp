@@ -1729,18 +1729,37 @@ QPDFObjectHandle precise_mask_number(double value)
     return QPDFObjectHandle::newReal(value, precision);
 }
 
-QPDFObjectHandle make_mask_transfer(QPDF& pdf, const quantapdf_mask_transfer& transfer)
+QPDFObjectHandle make_mask_transfer(
+    QPDF& pdf, const quantapdf_mask_transfer* nodes, std::size_t index)
 {
+    const auto& transfer = nodes[index];
+    const bool stitched = transfer.end != index + 1u;
     auto function = QPDFObjectHandle::newDictionary();
-    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(2));
+    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(stitched ? 3 : 2));
     function.replaceKey("/Domain", QPDFObjectHandle::newArray(
         {precise_mask_number(transfer.domain[0]), precise_mask_number(transfer.domain[1])}));
     if (transfer.has_range)
         function.replaceKey("/Range", QPDFObjectHandle::newArray(
             {precise_mask_number(transfer.range[0]), precise_mask_number(transfer.range[1])}));
-    function.replaceKey("/C0", QPDFObjectHandle::newArray({precise_mask_number(transfer.c0)}));
-    function.replaceKey("/C1", QPDFObjectHandle::newArray({precise_mask_number(transfer.c1)}));
-    function.replaceKey("/N", precise_mask_number(transfer.exponent));
+    if (stitched) {
+        auto children = QPDFObjectHandle::newArray();
+        auto bounds = QPDFObjectHandle::newArray();
+        auto encode = QPDFObjectHandle::newArray();
+        for (std::size_t child = index + 1u; child < transfer.end; child = nodes[child].end) {
+            children.appendItem(make_mask_transfer(pdf, nodes, child));
+            if (nodes[child].end < transfer.end)
+                bounds.appendItem(precise_mask_number(nodes[child].upper_bound));
+            encode.appendItem(precise_mask_number(nodes[child].encode[0]));
+            encode.appendItem(precise_mask_number(nodes[child].encode[1]));
+        }
+        function.replaceKey("/Functions", children);
+        function.replaceKey("/Bounds", bounds);
+        function.replaceKey("/Encode", encode);
+    } else {
+        function.replaceKey("/C0", QPDFObjectHandle::newArray({precise_mask_number(transfer.c0)}));
+        function.replaceKey("/C1", QPDFObjectHandle::newArray({precise_mask_number(transfer.c1)}));
+        function.replaceKey("/N", precise_mask_number(transfer.exponent));
+    }
     return pdf.makeIndirectObject(function);
 }
 
@@ -2491,7 +2510,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                             soft_mask.replaceKey("/BC", backdrop);
                         }
                         if (mask_group->transfer != nullptr)
-                            soft_mask.replaceKey("/TR", make_mask_transfer(pdf, *mask_group->transfer));
+                            soft_mask.replaceKey("/TR", make_mask_transfer(pdf, mask_group->transfer, 0u));
                         soft_mask.replaceKey("/G", make_clip_mask_group(pdf, ir, page, *mask_group));
                         object->replaceKey("/SMask", soft_mask);
                     }

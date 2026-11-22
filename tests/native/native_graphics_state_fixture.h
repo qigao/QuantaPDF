@@ -97,8 +97,25 @@ inline std::string luminosity_form(const char *space,bool knockout=false)
         "/Group << /S /Transparency /CS ")+space+(knockout?" /K true":"")+" >> >>";
 }
 
+inline constexpr const char* stitched_luminosity_mask =
+    "<< /S /Luminosity /BC [.625] /TR << /FunctionType 3 /Domain [0 1] /Range [0 .875] "
+    "/Bounds [.5 .75] /Encode [0 1 1 0 .75 1.25] /Functions ["
+    "<< /FunctionType 2 /Domain [0 1] /Range [.125 .375] /C0 [-.5] /C1 [1.5] /N 1 >> "
+    "<< /FunctionType 3 /Domain [.25 .75] /Bounds [] /Encode [.25 .75] /Functions ["
+    "<< /FunctionType 2 /Domain [0 1] /N 2 >>] >> "
+    "<< /FunctionType 2 /Domain [0 2] /N 1 >>] >> >>";
+inline constexpr const char* stitched_luminosity_fills =
+    ".25 g .5 0 1 2.5 re f .5 g 1.5 0 1 2.5 re f "
+    "1 g 2.5 0 1 2.5 re f .75 g 3.5 0 1 2.5 re f";
+inline constexpr const char* stitched_alpha_mask =
+    "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [1] "
+    "/Encode [0 1 .875 .125] /Functions ["
+    "<< /FunctionType 2 /Domain [0 1] /C0 [.25] /C1 [.25] /N 1 >> "
+    "<< /FunctionType 2 /Domain [0 1] /N 1 >>] >> >>";
+
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
-    const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>")
+    const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>",
+    bool cyclic_transfer=false)
 {
     auto pdf=QPDF::create();
     const auto font_fixture=native_ttf_fixture();
@@ -111,6 +128,11 @@ inline original create_alpha_group(const std::string& page_content, const std::s
     auto form_dict=form.getDict(), entries=Object::parse(form_dictionary);
     for(const auto& key:entries.getKeys())form_dict.replaceKey(key,entries.getKey(key));
     auto mask=Object::parse(soft_mask);
+    if(cyclic_transfer) {
+        auto transfer=pdf->makeIndirectObject(mask.getKey("/TR"));
+        transfer.getKey("/Functions").setArrayItem(0,transfer);
+        mask.replaceKey("/TR",transfer);
+    }
     mask.replaceKey("/G",form);
     auto states=Object::parse("<< /Alpha <<>> /Inert << /ca 1 >> /Clear << /SMask /None >> "
         "/Half << /ca .5 >> /Quarter << /ca .25 >> /Zero << /ca 0 >> "

@@ -875,13 +875,14 @@
   knockout。Form BBox 外及未绘制的区域使用背景亮度，包括空组。写出使用等效的
   DeviceGray 遮罩，保留每笔亮度、透明度及背景亮度。参见
   [PDF 32000-1 §11.5.3、§11.6.5.2](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)。
-- 两种软遮罩均支持一输入一输出的 Type 2 指数插值 `/TR`。每个子像素先合成组遮罩，
-  再按 `/Domain` 限制输入、计算函数、按可选 `/Range` 和 [0,1] 限制输出。空组和
-  Form BBox 外同样应用传递函数。写出保留函数参数。参见
-  [PDF 32000-1 §7.10.3、§11.6.5.2](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)。
+- 两种软遮罩均支持一输入一输出的 Type 2 指数插值及 Type 3 拼接 `/TR`。
+  Type 3 可组合和嵌套已有函数，按 `/Bounds` 选取子函数并按 `/Encode` 映射输入。
+  每个子像素先合成组遮罩，再计算函数。各层应用自己的 `/Domain` 和可选 `/Range`，
+  最终遮罩限于 [0,1]。空组和 Form BBox 外同样应用函数。写出保留函数树和参数。参见
+  [PDF 32000-1 §7.10.3–4、§11.6.5.2](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)。
 - 覆盖部分透明重叠、knockout、各笔 Clip、超过 64 个填充、Form Matrix、文字、图像、
   PDF 写回重开和 IR 发布失败。页面绘制的通用 alpha、其他 Luminosity 色彩空间、
-  Type 0／3／4 传递函数、组内图像/文字和嵌套组仍待实现。
+  Type 0／4 传递函数、组内图像/文字和嵌套组仍待实现。
 
 ## 单一执行模型
 
