@@ -363,9 +363,8 @@ matrix read_matrix(Obj v)
 { if(v.isNull()) return identity; need(v.isArray() && v.getArrayNItems()==6); matrix r; for(int i=0;i<6;++i) r[static_cast<size_t>(i)]=number(v.getArrayItem(i)); return r; }
 struct graphics {
     matrix ctm=identity;
-    /* One private frozen Source Clip identity, carried with the real
-     * PDF graphics-state stack. Ordinary text extraction leaves it 0. */
-    quantapdf_composer_clip_id clip_id=0u;
+    /* Source Clip and alpha-group identities follow the PDF graphics-state stack. */
+    quantapdf_composer_clip_id clip_id=0u,mask_clip_id=0u;
     font *face=nullptr;
     double size=0, character=0, word=0, scale=1, leading=0, rise=0;
     std::array<double,3> fill={0,0,0};
@@ -480,7 +479,7 @@ struct projection {
     {
         const auto argb=outline_color(g);
         if(source_mixed.on_text) {
-            const auto result=source_mixed.on_text(source_mixed.user,g.clip_id);
+            const auto result=source_mixed.on_text(source_mixed.user,g.clip_id,g.mask_clip_id);
             need(result==QUANTAPDF_OK,result);
         }
         outline_paints.push_back({{},argb});
@@ -650,7 +649,7 @@ public:
         auto op=object.getOperatorValue();
         if(p.outline_mode) {
             if(pending_clip)supported(op=="n");
-            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg","m","l","c","v","y","h","re","f","f*","n","Do","W","W*"};
+            static const char *allowed[]={"q","Q","cm","BT","ET","Tf","Tc","Tw","Tz","TL","Ts","Tr","Tm","Td","TD","T*","Tj","TJ","'","\"","g","rg","m","l","c","v","y","h","re","f","f*","n","Do","W","W*","gs"};
             supported(std::any_of(std::begin(allowed),std::end(allowed),[&](const char *s){return op==s;}));
         }
         const bool path_op=op=="m" || op=="l" || op=="c" || op=="v" ||
@@ -661,7 +660,7 @@ public:
             const uint32_t argb=(op=="f" || op=="f*")?p.outline_color(g):0u;
             quantapdf_composer_clip_id after=0u;
             const auto status=p.source_mixed.on_path(p.source_mixed.user,
-                op,args,{g.ctm,argb,g.clip_id},&after);
+                op,args,{g.ctm,argb,g.clip_id,g.mask_clip_id},&after);
             need(status==QUANTAPDF_OK,status);
             g.clip_id=after;
             pending_clip=op=="W" || op=="W*";
@@ -681,7 +680,7 @@ public:
             if(p.outline_mode) {
                 quantapdf_composer_clip_id after=0u;
                 const auto status=p.source_mixed.on_path(p.source_mixed.user,
-                    op,args,{g.ctm,0u,g.clip_id},&after);
+                    op,args,{g.ctm,0u,g.clip_id,g.mask_clip_id},&after);
                 need(status==QUANTAPDF_OK,status);
             }
             in_text=true;text=line=identity;
@@ -706,10 +705,14 @@ public:
         } else if(op=="Do" && p.outline_mode) {
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
             const Obj image=resource("/XObject",args[0]);
-            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.fill,g.clip_id);
+            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.fill,g.clip_id,g.mask_clip_id);
             need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
-        else if(op=="gs") {
+        else if(op=="gs" && p.outline_mode) {
+            count(1);
+            const auto status=p.source_mixed.on_gs(p.source_mixed.user,args[0],g.ctm,&g.mask_clip_id);
+            need(status==QUANTAPDF_OK,status);
+        } else if(op=="gs") {
             count(1); Obj state=resource("/ExtGState",args[0]); need(state.isDictionary()); Obj f=state.getKey("/Font");
             if(!f.isNull()) { need(f.isArray() && f.getArrayNItems()==2); g.face=p.get_font(f.getArrayItem(0)); g.size=number(f.getArrayItem(1)); }
             if(p.geometry) { Obj alpha=state.getKey("/ca"); if(!alpha.isNull()) g.opacity=std::clamp(number(alpha),0.0,1.0); }
@@ -837,7 +840,7 @@ namespace quantapdf::detail {
 namespace {
 graphics outline_graphics(source_text_seed const& seed)
 {
-    graphics g;g.ctm=seed.ctm;g.clip_id=seed.clip_id;
+    graphics g;g.ctm=seed.ctm;g.clip_id=seed.clip_id;g.mask_clip_id=seed.mask_clip_id;
     g.fill=source_rgb_channels(seed.argb);
     return g;
 }

@@ -1,6 +1,114 @@
 #ifndef QUANTAPDF_NATIVE_GRAPHICS_STATE_CASES_H
 #define QUANTAPDF_NATIVE_GRAPHICS_STATE_CASES_H
 #include "native_graphics_state_fixture.h"
+static int alpha_group_cases(const std::string& filename)
+{
+    using namespace native_graphics_fixture;
+    const auto render=[&](const original& sample,unsigned dpi,std::vector<unsigned char>& pixels,
+                          quantapdf_status wanted=QUANTAPDF_OK)->int {
+        CHECK(write_pdf(filename,sample.bytes));
+        quantapdf_document *document=nullptr;
+        quantapdf_page *page=nullptr;
+        OK(quantapdf_open(filename.c_str(),nullptr,&document));
+        CHECK(std::remove(filename.c_str())==0);
+        OK(quantapdf_load_page(document,0,&page));
+        quantapdf_close(document);
+        quantapdf_bitmap *bitmap=nullptr;
+        quantapdf_render_options options{};
+        options.dpi=static_cast<float>(dpi);
+        const auto status=quantapdf_render_page_with_options(page,&options,&bitmap);
+        quantapdf_drop_page(page);
+        if(status!=wanted)
+            std::fprintf(stderr,"Alpha group: render status %d, expected %d\n",int(status),int(wanted));
+        CHECK(status==wanted);
+        if(wanted!=QUANTAPDF_OK) {
+            CHECK(bitmap==nullptr);
+            return EXIT_SUCCESS;
+        }
+        int w=0,h=0,stride=0,channels=0;
+        const unsigned char *data=nullptr;
+        size_t size=0u;
+        OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&channels));
+        OK(quantapdf_bitmap_data(bitmap,&data,&size));
+        CHECK(w==int(12u*dpi/72u) && h==int(4u*dpi/72u) && stride==w*3 && channels==3 &&
+              size==static_cast<size_t>(h*stride));
+        pixels.assign(data,data+size);
+        quantapdf_drop_bitmap(bitmap);
+        return EXIT_SUCCESS;
+    };
+    constexpr const char *group = "q 0 0 3 4 re W n 1 0 0 rg -2 0 10 3 re f Q";
+    const auto sample=create_alpha_group(
+        "0 1 0 rg 0 0 12 4 re f "
+        "q 0 0 4.25 4 re W n "
+        "q 1 0 0 1 1 0 cm /Alpha gs BT ET /Inert gs 1 0 0 1 2 0 cm "
+        "0 0 1 rg -3 0 12 4 re f Q 1 0 0 rg 0 3 12 1 re f Q "
+        "q 1 0 0 1 5 0 cm /Alpha gs q 3 0 0 4 0 0 cm /Plain Do Q "
+        "q 1 0 0 4 3 0 cm /Own Do Q /Clear gs 0 g 4 0 1 4 re f Q", group);
+    for(unsigned dpi:{72u,144u}) {
+        std::vector<unsigned char> pixels;
+        CHECK(render(sample,dpi,pixels)==EXIT_SUCCESS);
+        const size_t w=12u*dpi/72u,h=4u*dpi/72u;
+        const std::array<unsigned,3> green{0u,255u,0u};
+        const std::array<unsigned,3> blue{0u,0u,255u},red{255u,0u,0u},
+            yellow{255u,255u,0u},black{0u,0u,0u};
+        for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+            auto expected=green;
+            const auto paint=[&](const std::array<unsigned,3>& rgb,double left,
+                                 double right,double bottom,double top) {
+                unsigned hits=0u;
+                for(unsigned sy=0u;sy<4u;++sy)for(unsigned sx=0u;sx<4u;++sx) {
+                    const double px=(double(x)+(sx+0.5)/4.0)*72.0/dpi;
+                    const double py=4.0-(double(y)+(sy+0.5)/4.0)*72.0/dpi;
+                    hits+=unsigned(px>=left && px<right && py>=bottom && py<top);
+                }
+                for(size_t c=0u;c<expected.size();++c)
+                    expected[c]=(rgb[c]*hits+expected[c]*(16u-hits)+8u)/16u;
+            };
+            paint(blue,1.5,4.25,0.0,2.5);
+            paint(red,0.0,4.25,3.0,4.0);
+            paint(yellow,5.5,8.0,0.0,2.5);
+            paint(yellow,8.0,9.0,0.0,4.0);
+            paint(black,9.0,10.0,0.0,4.0);
+            for(size_t c=0u;c<expected.size();++c)
+                CHECK(pixels[(y*w+x)*3u+c]==expected[c]);
+        }
+    }
+
+    // A real outlined glyph: use an independently authored Clip as the
+    // expected geometry, and require both ink and a measurable mask effect.
+    const auto text=create_alpha_group(
+        "BT /F 4 Tf /Alpha gs 1 1 Td <002d> Tj ET",group);
+    const auto clipped=create_alpha_group(
+        "0.5 0 3 2.5 re W n BT /F 4 Tf 1 1 Td <002d> Tj ET",group);
+    const auto plain=create_alpha_group(
+        "BT /F 4 Tf 1 1 Td <002d> Tj ET",group);
+    std::vector<unsigned char> actual,reference,unmasked;
+    CHECK(render(text,144u,actual)==EXIT_SUCCESS);
+    CHECK(render(clipped,144u,reference)==EXIT_SUCCESS);
+    CHECK(render(plain,144u,unmasked)==EXIT_SUCCESS);
+    CHECK(actual==reference && actual!=unmasked &&
+          std::any_of(actual.begin(),actual.end(),[](unsigned char v){return v!=255u;}));
+
+    // The second gs replaces the old mask. Reflection is in Form space.
+    const auto replacement=create_alpha_group(
+        "q /Alpha gs 1 0 0 1 4 0 cm /Alpha gs -4 0 12 4 re f Q",
+        "0 0 1 4 re f",
+        "<< /Subtype /Form /BBox [0 0 2 4] /Matrix [-1 0 0 1 2 0] /Group << /S /Transparency >> >>");
+    CHECK(render(replacement,72u,actual)==EXIT_SUCCESS);
+    for(size_t i=0u;i<actual.size();++i)
+        CHECK(actual[i]==(i/3u%12u==5u?0u:255u));
+
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",""),72u,actual)==EXIT_SUCCESS);
+    CHECK(std::all_of(actual.begin(),actual.end(),[](unsigned char v){return v==255u;}));
+    for(const char *unsupported : {"0 0 2 2 re f 2 0 2 2 re f", "/Alpha gs", "0 0 1 1 re S"}) {
+        CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",unsupported),
+            72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    }
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",group,alpha_form,"<< /S /Luminosity >>"),
+        72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    return EXIT_SUCCESS;
+}
+
 static int graphics_state_cases(const std::string& filename)
 {
     size_t renders=0u,failures=0u;
@@ -48,6 +156,7 @@ static int graphics_state_cases(const std::string& filename)
         quantapdf_drop_page(page);++failures;
     }
     CHECK(renders==240u && failures==16u);
+    CHECK(alpha_group_cases(filename)==EXIT_SUCCESS);
     std::printf("Dynamic q/Q: %zu full RGB renders, 4097 frames, long state traffic, split/encrypted streams, %zu atomic errors\n",renders,failures);
     return EXIT_SUCCESS;
 }

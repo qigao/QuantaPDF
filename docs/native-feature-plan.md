@@ -842,7 +842,7 @@
 - 整页渲染和图像提取共用软遮罩解码与采样，应用 Decode，并保留 16 位样本和插值精度。
   Scene 将其与底图色样及已绘制的背景合成。写回 PDF 时保留软遮罩的分辨率、精度与 Interpolate。
 - 覆盖 RAW／Flate、不同分辨率、16 位插值舍入、裁剪、旋转、全透明和半透明、预算、分配失败及写出重开。
-  图形状态的软遮罩组和 JPEG2000 内嵌 alpha 待实现。
+  JPEG2000 内嵌 alpha 待实现。
 
 ### A4 预混合图像的 Matte
 
@@ -859,6 +859,17 @@
   预混合色，再按该像素的 alpha 在调色板基色空间还原，之后转换 CMYK 和执行插值。
   同一索引可因 alpha 不同还原出不同颜色。支持 DeviceGray／DeviceRGB／DeviceCMYK
   基色，以及字节串或流形式的调色板。
+
+### A5 图形状态的 Alpha 遮罩组
+
+- `gs` 支持由单个不透明矢量填充（或空组）生成的 `/SMask /S /Alpha`。Source 使用
+  调用点 CTM 与 Form Matrix 冻结遮罩；Form BBox、组内 Clip 和填充形状进入现有
+  Clip 图。精确子像素测试在同一采样点求交。参见
+  [PDF 32000-1 §11.5.2、§11.6.5.2](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)。
+- Fill、Image 和文字轮廓都读取当前遮罩。新的遮罩取代旧的，`/None` 清除，`q/Q`
+  恢复。图像自带的 `/Mask` 或 `/SMask` 优先。页与遮罩内容共享解码字节预算。
+- 覆盖组与页面的 Clip 交集、`gs` 后变换、Form Matrix 反射、真正字形、写入前 IR
+  发布失败。多笔叠加、组内部分透明、Luminosity、非单位传递函数和嵌套组仍待实现。
 
 ## 单一执行模型
 
@@ -896,8 +907,8 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A1 API 与执行模型 | C11 facade、Context/owner、qpdf backend、native renderer 已存在；版本包装和多层准入仍多 | 一套当前 API；删除兼容 factory/provider/record 协商；直接复用打开的文档；统一所有权、错误和脚本失败行为 | P0 |
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
-| A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射、插值、颜色键、显式位图遮罩、独立 DeviceGray／DeviceRGB stencil 绘制及灰度图像 SMask（含 DeviceGray／RGB／CMYK 与 Indexed Matte），具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、独立 stencil 提取、图形状态软遮罩组和 JPEG2000 内嵌 alpha | P1 |
-| A5 Form、透明度与外观 | 部分 writer/Composer 数据结构已存在；native 整页解释/渲染覆盖不足 | 嵌套 Form、Resources/BBox/Matrix；alpha/blend/group/soft mask；pattern/shading；annotation/widget appearance | P1 |
+| A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射、插值、颜色键、显式位图遮罩、独立 DeviceGray／DeviceRGB stencil 绘制及灰度图像 SMask（含 DeviceGray／RGB／CMYK 与 Indexed Matte），具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、独立 stencil 提取和 JPEG2000 内嵌 alpha | P1 |
+| A5 Form、透明度与外观 | writer/Composer 数据结构，单个不透明矢量填充的 Alpha 遮罩组 | 通用 Form、透明组、混合模式、部分透明及 Luminosity 遮罩、pattern/shading、annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
 

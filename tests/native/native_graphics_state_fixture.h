@@ -1,6 +1,7 @@
 #ifndef QUANTAPDF_NATIVE_GRAPHICS_STATE_FIXTURE_H
 #define QUANTAPDF_NATIVE_GRAPHICS_STATE_FIXTURE_H
 #include "native_content_stream_fixture.h"
+#include "native_ttf_fixture.h"
 #include <array>
 
 namespace native_graphics_fixture {
@@ -82,6 +83,54 @@ inline original create(size_t depth,bool clipped,bool images,bool encrypted,
     result.bytes.assign(reinterpret_cast<const char*>(buffer->getBuffer()),buffer->getSize());
     return result;
 }
+inline constexpr const char *alpha_form =
+    "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
+    " /Group << /S /Transparency /I true >> >>";
+
+inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
+    const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>")
+{
+    auto pdf=QPDF::create();
+    const auto font_fixture=native_ttf_fixture();
+    pdf->processMemoryFile("alpha-group fixture",font_fixture.data(),font_fixture.size());
+    auto page=pdf->getAllPages().front();
+    page.replaceKey("/MediaBox",Object::parse("[0 0 12 4]"));
+    page.replaceKey("/Contents",pdf->newStream(page_content));
+    auto resources=page.getKey("/Resources");
+    auto form=pdf->newStream(mask_content);
+    auto form_dict=form.getDict(), entries=Object::parse(form_dictionary);
+    for(const auto& key:entries.getKeys())form_dict.replaceKey(key,entries.getKey(key));
+    auto mask=Object::parse(soft_mask);
+    mask.replaceKey("/G",form);
+    auto states=Object::parse("<< /Alpha <<>> /Inert << /ca 1 >> /Clear << /SMask /None >> >>");
+    states.getKey("/Alpha").replaceKey("/SMask",mask);
+    resources.replaceKey("/ExtGState",states);
+    auto color=Object::parse(
+        "<< /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceRGB >>");
+    auto image=pdf->newStream(std::string("\xff\xff\0",3u));
+    auto masked_image=pdf->newStream(std::string("\xff\xff\0",3u));
+    for(const auto& key:color.getKeys()) {
+        image.getDict().replaceKey(key,color.getKey(key));
+        masked_image.getDict().replaceKey(key,color.getKey(key));
+    }
+    auto opacity=pdf->newStream(std::string(1u,'\xff'));
+    auto gray=Object::parse(
+        "<< /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray >>");
+    for(const auto& key:gray.getKeys())opacity.getDict().replaceKey(key,gray.getKey(key));
+    masked_image.getDict().replaceKey("/SMask",opacity);
+    auto objects=Object::newDictionary();
+    objects.replaceKey("/Plain",image);
+    objects.replaceKey("/Own",masked_image);
+    resources.replaceKey("/XObject",objects);
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion("1.4");
+    writer.setOutputMemory();
+    writer.write();
+    const auto buffer=writer.getBufferSharedPointer();
+    return {std::string(reinterpret_cast<const char*>(buffer->getBuffer()),buffer->getSize()),
+            page_content.size()+mask_content.size()};
+}
+
 // Independent source rectangle/Clip sample intersections and integer opaque
 // source-over. All coordinates are exact integers/rational 4x4 sample centers.
 inline std::vector<unsigned char> rgb(unsigned dpi,bool clipped,bool images)

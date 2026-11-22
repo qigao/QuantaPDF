@@ -4972,9 +4972,43 @@ static int content_stream_source_contracts(
     return EXIT_SUCCESS;
 }
 
+static int alpha_group_source_contract(const quantapdf_qpdf_page_limits& defaults)
+{
+    const auto sample=native_graphics_fixture::create_alpha_group(
+        "q 0 0 6 4 re W n /Alpha gs 0 0 12 4 re f Q","0 0 4 3 re f");
+    auto caps=defaults;
+    caps.max_content_bytes=sample.decoded_bytes;
+    quantapdf_qpdf_document *document=nullptr;
+    CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(sample.bytes.data()),
+        sample.bytes.size(),"",&document)==QUANTAPDF_OK);
+    const std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)> owner(document,quantapdf_qpdf_close);
+    quantapdf_ir ir{};
+    const auto dispose=std::unique_ptr<quantapdf_ir,decltype(&quantapdf_ir_dispose)>(&ir,quantapdf_ir_dispose);
+    auto short_caps=caps;
+    --short_caps.max_content_bytes;
+    CHECK(quantapdf_qpdf_page_to_ir(document,0u,&short_caps,&ir)==QUANTAPDF_ERROR_UNSUPPORTED && cleared(ir));
+
+    track_c_allocation=true;c_fail_index=0u;c_allocations=0u;c_faults=0u;
+    const auto status=quantapdf_qpdf_page_to_ir(document,0u,&caps,&ir);
+    track_c_allocation=false;
+    const size_t allocations=c_allocations;
+    CHECK(status==QUANTAPDF_OK && allocations>0u && ir.operation_count==1u &&
+          ir.resources.clip_count==5u && ir.resources.graphics_state_count==1u &&
+          ir.resources.graphics_states[0].clip_id==5u);
+    quantapdf_ir_dispose(&ir);
+    for(size_t fail=1u;fail<=allocations;++fail) {
+        track_c_allocation=true;c_fail_index=fail;c_allocations=0u;c_faults=0u;
+        const auto denied=quantapdf_qpdf_page_to_ir(document,0u,&caps,&ir);
+        track_c_allocation=false;c_fail_index=0u;
+        CHECK(denied==QUANTAPDF_ERROR_NOMEM && cleared(ir) && c_faults==1u && c_allocations==fail);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int graphics_state_source_contracts(
     const quantapdf_qpdf_page_limits& defaults)
 {
+    CHECK(alpha_group_source_contract(defaults)==EXIT_SUCCESS);
     size_t stack_faults=0u,publication_faults=0u,quota_checks=0u;
     for(bool clipped:{false,true})for(bool encrypted:{false,true})for(int kind:{0,1,2,3}) {
         const bool images=kind==1;

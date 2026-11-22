@@ -200,6 +200,7 @@ struct staged_image_clip {
 struct staged_clip_definition {
     staged_image_clip path;
     clip_identity parent=0u;
+    clip_identity other=0u; // An intersection of two existing roots has no path.
 };
 
 /* The bounded Stroke samplers still require short leaves. Ordinary Clip
@@ -267,6 +268,8 @@ struct admission {
     const quantapdf_qpdf_page_limits& limits;
     size_t page_w,page_h;
     size_t source_pixels=0,drawn_pixels=0;
+    size_t content_bytes=0;
+    bool has_alpha_groups=false;
     std::vector<staged_image> draws;
     std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
@@ -276,6 +279,7 @@ struct admission {
     bool saw_q_restore=false;
 
     std::vector<clip_identity> scoped_clip_membership;
+    clip_identity last_clip=0u,last_mask=0u,last_paint_clip=0u;
 
     bool three_branch_candidate=false;
     std::array<staged_image_clip,3u> three_branch_leaves{};
@@ -314,15 +318,37 @@ struct admission {
                 [](const staged_path& path){return path.stroke;});
     }
     const staged_image_clip& first_clip() const {return clips[0].path;}
-    clip_identity define_clip(std::vector<quantapdf_composer_path_command> commands,
-        quantapdf_composer_fill_rule rule,clip_identity parent)
+    clip_identity append_clip(staged_clip_definition definition)
     {
         admit(clips.size()<std::numeric_limits<clip_identity>::max(),
               QUANTAPDF_ERROR_UNSUPPORTED);
         if(clips.size()==clips.capacity())QP_SOURCE_STAGE_ARM(9u);
-        clips.push_back({{std::move(commands),rule},parent});
-        clip_completed=true;
+        clips.push_back(std::move(definition));
         return static_cast<clip_identity>(clips.size());
+    }
+    clip_identity define_clip(std::vector<quantapdf_composer_path_command> commands,
+        quantapdf_composer_fill_rule rule,clip_identity parent)
+    {
+        clip_completed=true;
+        return append_clip({{std::move(commands),rule},parent});
+    }
+    clip_identity paint_clip(clip_identity clip,clip_identity mask)
+    {
+        if(mask==0u)return clip;
+        if(clip==0u)return mask;
+        if(clip==last_clip && mask==last_mask)return last_paint_clip;
+        last_clip=clip;last_mask=mask;
+        last_paint_clip=append_clip({{},clip,mask});
+        return last_paint_clip;
+    }
+    clip_identity image_clip(Obj image,clip_identity clip,clip_identity mask)
+    {
+        if(mask!=0u) {
+            Obj dict=image.getDict();
+            if(!dict.getKey("/Mask").isNull() || !dict.getKey("/SMask").isNull())
+                return clip;
+        }
+        return paint_clip(clip,mask);
     }
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
@@ -330,6 +356,7 @@ struct admission {
                     bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000),
                     float width=1.0f)
     {
+        admit(!is_stroke || !has_alpha_groups,QUANTAPDF_ERROR_UNSUPPORTED);
         const bool three_path=three_branch_candidate && draws.empty() &&
             (is_stroke ?
                 (painted_paths.empty() && three_branch_count==1u) :
@@ -490,7 +517,7 @@ struct admission {
     }
 };
 
-void validate_opaque_gs(Obj resources,Obj name)
+Obj read_source_gs_mask(Obj resources,Obj name)
 {
     admit(resources.isDictionary() && name.isName(),
           QUANTAPDF_ERROR_FORMAT);
@@ -527,10 +554,8 @@ void validate_opaque_gs(Obj resources,Obj name)
         admit(bm.getName()=="/Normal",QUANTAPDF_ERROR_UNSUPPORTED);
     }
     Obj smask=entry.getKey("/SMask");
-    if(!smask.isNull()) {
-        admit(smask.isName(),QUANTAPDF_ERROR_UNSUPPORTED);
-        admit(smask.getName()=="/None",QUANTAPDF_ERROR_UNSUPPORTED);
-    }
+    admit(smask.isNull() || smask.isNameAndEquals("/None") || smask.isDictionary(),
+          QUANTAPDF_ERROR_UNSUPPORTED);
     for(const char *key:{"/AIS","/OP","/op"}) {
         Obj value=entry.getKey(key);
         if(!value.isNull()) {
@@ -543,28 +568,29 @@ void validate_opaque_gs(Obj resources,Obj name)
         admit(opm.isInteger(),QUANTAPDF_ERROR_FORMAT);
         admit(opm.getIntValue()==0,QUANTAPDF_ERROR_UNSUPPORTED);
     }
+    return smask;
 }
 
 // The token interpreter supplies the paint's actual current Clip identity.
-quantapdf_status source_text_paint(void *user,clip_identity clip)
+quantapdf_status source_text_paint(void *user,clip_identity clip,clip_identity mask)
 {
     auto& source=*static_cast<admission*>(user);
     try {
         admit(source.order.size()<source.limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(3);
-        source.scoped_clip_membership.push_back(clip);
+        source.scoped_clip_membership.push_back(source.paint_clip(clip,mask));
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
 quantapdf_status source_image_paint(void *user,Obj image,
-    const matrix& ctm,const std::array<double,3>& fill,clip_identity clip)
+    const matrix& ctm,const std::array<double,3>& fill,clip_identity clip,clip_identity mask)
 {
     auto& source=*static_cast<admission*>(user);
     try {
         source.execute(image,ctm,fill);
-        source.scoped_clip_membership.push_back(clip);
+        source.scoped_clip_membership.push_back(source.image_clip(image,clip,mask));
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(quantapdf::detail::image_stream_error const& e){return e.status;}
@@ -578,17 +604,18 @@ class page_content_reader final : public Obj::ParserCallbacks {
     struct graphics_state {
         matrix ctm;
         uint32_t fill,stroke;
-        clip_identity clip;
+        clip_identity clip,mask;
         double width,miter;
         int cap,join;
         bool default_dash,rgb_exact;
     };
 public:
-    explicit page_content_reader(admission& a) : target(a) {}
+    explicit page_content_reader(admission& a) : target(a),content_bytes(a.content_bytes) {}
 
     void contentSize(size_t size) override
     {
-        admit(size<=target.limits.max_content_bytes,QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(size<=target.limits.max_content_bytes-content_bytes,QUANTAPDF_ERROR_UNSUPPORTED);
+        content_bytes+=size;
     }
 
     void handleObject(Obj item) override
@@ -605,6 +632,7 @@ public:
         }
         const std::string op=item.getOperatorValue();
         if(op=="BT") {
+            admit(!in_alpha_group,QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.empty() && pending_path.empty() && !clip_pending,
                   QUANTAPDF_ERROR_FORMAT);
             admit(target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
@@ -612,19 +640,21 @@ public:
             std::vector<quantapdf::detail::source_text_seed> scoped_saved;
             scoped_saved.reserve(stack.size());
             for(const auto& state:stack) {
-                scoped_saved.push_back({state.ctm,state.fill,state.clip});
+                scoped_saved.push_back({state.ctm,state.fill,state.clip,state.mask});
             }
             const auto setup=quantapdf::detail::make_source_text_outlines(
                 target.resources,target.viewport_left,target.viewport_bottom,target.exact_page_h,
                 target.text_outline_swap_axes,
-                {current,fill_argb,clip_active},
+                {current,fill_argb,clip_active,mask_active},
                 scoped_saved,
                 {this,
-                 [](void *u,clip_identity clip){return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip);},
-                 [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,clip_identity clip){
-                     return source_image_paint(&static_cast<page_content_reader*>(u)->target,image,ctm,fill,clip);
+                 [](void *u,clip_identity clip,clip_identity mask){
+                     return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip,mask);
                  },
-                 text_path},outline_reader);
+                 [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,clip_identity clip,clip_identity mask){
+                     return source_image_paint(&static_cast<page_content_reader*>(u)->target,image,ctm,fill,clip,mask);
+                 },
+                 text_graphics_state,text_path},outline_reader);
             admit(setup==QUANTAPDF_OK,setup);
             const auto status=outline_reader->consume(item);
             admit(status==QUANTAPDF_OK,status);return;
@@ -728,7 +758,7 @@ public:
              * Stroke sampler; every parsed state value is nevertheless saved. */
             saw_saved_scope=true;
             QP_SOURCE_STACK_GROW(stack);
-            stack.push_back({current,fill_argb,stroke_argb,clip_active,
+            stack.push_back({current,fill_argb,stroke_argb,clip_active,mask_active,
                 stroke_width,stroke_miter,stroke_cap,stroke_join,
                 stroke_default_dash,stroke_rgb_exact});
         } else if(op=="Q") {
@@ -747,7 +777,7 @@ public:
             }
             const graphics_state saved=stack.back();stack.pop_back();
             const bool was_clipped=clip_active!=0u;
-            current=saved.ctm;fill_argb=saved.fill;clip_active=saved.clip;
+            current=saved.ctm;fill_argb=saved.fill;clip_active=saved.clip;mask_active=saved.mask;
             stroke_argb=saved.stroke;stroke_width=saved.width;stroke_miter=saved.miter;
             stroke_cap=saved.cap;stroke_join=saved.join;
             stroke_default_dash=saved.default_dash;stroke_rgb_exact=saved.rgb_exact;
@@ -775,7 +805,7 @@ public:
             /* An exact page-height negative-Y authoring CTM selects
              * only the *candidate*. It does NOT make a page paintable;
              * the complete original 3GS/7Clip shape is still mandatory. */
-            if(!target.three_branch_candidate && !target.clip_completed &&
+            if(!in_alpha_group && !target.has_alpha_groups && !target.three_branch_candidate && !target.clip_completed &&
                target.order.empty() && target.draws.empty() &&
                target.exact_page_w==600.0 &&
                target.exact_page_h==600.0 &&
@@ -815,13 +845,10 @@ public:
                 else stroke_join=static_cast<int>(style);
             }
         } else if(op=="gs") {
-            /* Resolve a named, bounded *opaque no-op* graphics-state
-             * resource at the actual operator position. A missing or
-             * unsupported state rejects the COMPLETE original page;
-             * never continue painting only the visible black Path. */
             admit(args.size()==1u && args[0].isName(),QUANTAPDF_ERROR_UNSUPPORTED);
-            validate_opaque_gs(target.resources,args[0]);
+            apply_gs(args[0],current,mask_active);
         } else if(op=="Do") {
+            admit(!in_alpha_group,QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -831,7 +858,7 @@ public:
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
             target.execute(named,current,quantapdf::detail::source_rgb_channels(fill_argb));
             QP_SOURCE_STAGE_ARM(6u);
-            target.scoped_clip_membership.push_back(clip_active);
+            target.scoped_clip_membership.push_back(target.image_clip(named,clip_active,mask_active));
         } else if(op=="rg") {
             admit(args.size()==3u);
             uint32_t rgb=0u;
@@ -918,7 +945,7 @@ public:
         auto& reader=*static_cast<page_content_reader*>(user);
         try {
             reader.current=state.ctm;reader.fill_argb=state.argb;
-            reader.clip_active=state.clip_id;
+            reader.clip_active=state.clip_id;reader.mask_active=state.mask_clip_id;
             reader.path_operator(op,operands);
             *after=reader.clip_active;
             return QUANTAPDF_OK;
@@ -1042,7 +1069,7 @@ public:
             target.paint_path(std::move(pending_path),fill_argb,
                 QUANTAPDF_COMPOSER_FILL_NONZERO,true,stroke_argb);
             QP_SOURCE_STAGE_ARM(7u);
-            target.scoped_clip_membership.push_back(clip_active);
+            target.scoped_clip_membership.push_back(target.paint_clip(clip_active,mask_active));
             clear_path();
             }
         } else if(op=="s") {
@@ -1073,7 +1100,7 @@ public:
             target.paint_path(std::move(pending_path),fill_argb,
                 QUANTAPDF_COMPOSER_FILL_NONZERO,true,stroke_argb);
             QP_SOURCE_STAGE_ARM(7u);
-            target.scoped_clip_membership.push_back(clip_active);
+            target.scoped_clip_membership.push_back(target.paint_clip(clip_active,mask_active));
             clear_path();
         } else if((op=="f" || op=="f*")) {
             if(target.texample_original_profile) {
@@ -1097,6 +1124,7 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
             // Painting an empty path has no coverage or retained operation.
             if(pending_path.empty())return;
+            admit(!in_alpha_group || target.order.empty(),QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.three_branch_candidate)
                 admit(op=="f" && target.painted_paths.size()>=1u &&
                       target.painted_paths.size()<=2u &&
@@ -1111,7 +1139,7 @@ public:
                 op=="f" ? QUANTAPDF_COMPOSER_FILL_NONZERO :
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
             QP_SOURCE_STAGE_ARM(7u);
-            target.scoped_clip_membership.push_back(clip_active);
+            target.scoped_clip_membership.push_back(target.paint_clip(clip_active,mask_active));
             clear_path();
             }
         } else if((op=="W" || op=="W*")) {
@@ -1236,6 +1264,112 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
     }
 private:
+    page_content_reader(admission& group,size_t& bytes,const matrix& ctm) :
+        target(group),content_bytes(bytes),in_alpha_group(true),current(ctm) {}
+
+    void apply_gs(Obj name,const matrix& ctm,clip_identity& active)
+    {
+        Obj mask=read_source_gs_mask(target.resources,name);
+        if(mask.isNull())return;
+        if(mask.isNameAndEquals("/None")) {
+            active=0u;
+            return;
+        }
+        admit(!in_alpha_group && target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
+        active=parse_alpha_group(mask,ctm);
+        target.has_alpha_groups=true;
+    }
+
+    static quantapdf_status text_graphics_state(void *user,Obj name,const matrix& ctm,
+        clip_identity *mask)
+    {
+        try {
+            static_cast<page_content_reader*>(user)->apply_gs(name,ctm,*mask);
+            return QUANTAPDF_OK;
+        } catch(rejected const& e){return e.status;}
+          catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+          catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
+    }
+
+    clip_identity parse_alpha_group(Obj mask,const matrix& ctm)
+    {
+        for(const auto& key:mask.getKeys())
+            admit(key=="/Type" || key=="/S" || key=="/G" || key=="/BC" || key=="/TR",
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj mask_type=mask.getKey("/Type"), transfer=mask.getKey("/TR"), form=mask.getKey("/G");
+        admit((mask_type.isNull() || mask_type.isNameAndEquals("/Mask")) &&
+              mask.getKey("/S").isNameAndEquals("/Alpha") && form.isStream() &&
+              (transfer.isNull() || transfer.isNameAndEquals("/Identity")),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+
+        Obj dict=form.getDict(), type=dict.getKey("/Type"), form_type=dict.getKey("/FormType");
+        admit((type.isNull() || type.isNameAndEquals("/XObject")) &&
+              dict.getKey("/Subtype").isNameAndEquals("/Form") &&
+              (form_type.isNull() || (form_type.isInteger() && form_type.getIntValue()==1)) &&
+              dict.getKey("/OC").isNull() && dict.getKey("/Ref").isNull() &&
+              dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
+              dict.getKey("/FDecodeParms").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj group=dict.getKey("/Group");
+        admit(group.isDictionary() && group.getKey("/S").isNameAndEquals("/Transparency"),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        for(const auto& key:group.getKeys())
+            admit(key=="/Type" || key=="/S" || key=="/I" || key=="/K" || key=="/CS",
+                  QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj group_type=group.getKey("/Type"), space=group.getKey("/CS");
+        admit((group_type.isNull() || group_type.isNameAndEquals("/Group")) &&
+              (space.isNull() || space.isNameAndEquals("/DeviceGray") ||
+               space.isNameAndEquals("/DeviceRGB") || space.isNameAndEquals("/DeviceCMYK")),
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        for(const char *key:{"/I","/K"}) {
+            Obj value=group.getKey(key);
+            admit(value.isNull() || value.isBool());
+        }
+
+        Obj resources=dict.getKey("/Resources");
+        admit(resources.isNull() || resources.isDictionary());
+        Obj transform=dict.getKey("/Matrix"), bbox=dict.getKey("/BBox");
+        matrix placement=identity;
+        if(!transform.isNull()) {
+            admit(transform.isArray() && transform.getArrayNItems()==6);
+            for(size_t i=0u;i<placement.size();++i)
+                placement[i]=finite_number(transform.getArrayItem(static_cast<int>(i)));
+        }
+        admit(bbox.isArray() && bbox.getArrayNItems()==4);
+        const double x0=finite_number(bbox.getArrayItem(0)),y0=finite_number(bbox.getArrayItem(1)),
+                     x1=finite_number(bbox.getArrayItem(2)),y1=finite_number(bbox.getArrayItem(3));
+        admission child(resources.isNull()?target.resources:resources,target.limits,target.page_w,target.page_h);
+        child.viewport_left=target.viewport_left;
+        child.viewport_bottom=target.viewport_bottom;
+        child.exact_page_h=target.exact_page_h;
+        page_content_reader reader(child,content_bytes,concat(ctm,placement));
+        reader.begin_contour();
+        reader.append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x0,y0);
+        reader.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x1,y0);
+        reader.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x1,y1);
+        reader.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x0,y1);
+        reader.close_path();
+        reader.clip_active=child.define_clip(std::move(reader.pending_path),QUANTAPDF_COMPOSER_FILL_NONZERO,0u);
+        reader.clear_path();
+        form.parseAsContents(&reader);
+
+        // A single opaque fill yields alpha one exactly where its path
+        // survives the Form BBox and its local clipping path.
+        admit(child.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
+        if(child.order.empty()) {
+            reader.complete_clip_contour();
+            return target.append_clip({{std::move(reader.pending_path),QUANTAPDF_COMPOSER_FILL_NONZERO}});
+        }
+        const auto base=static_cast<clip_identity>(target.clips.size());
+        admit(child.clips.size()<std::numeric_limits<clip_identity>::max()-base,QUANTAPDF_ERROR_UNSUPPORTED);
+        for(auto& clip:child.clips) {
+            if(clip.parent!=0u)clip.parent+=base;
+            target.append_clip(std::move(clip));
+        }
+        auto& fill=child.painted_paths.front();
+        return target.append_clip({{std::move(fill.commands),fill.fill_rule},
+                                  base+child.scoped_clip_membership.front()});
+    }
+
     /* The SAME QPDF operator callbacks account for every original m:
      * an unconsumed MOVE has zero winding edges, and retiring it is
      * allowed ONLY when a subsequent original m replaces it or the
@@ -1404,14 +1538,14 @@ private:
             current[0]==1.0 && current[1]==0.0 &&
             current[2]==0.0 && current[3]==-1.0 &&
             current[4]==0.0 && current[5]==600.0;
-        admit(y_inverse ||
+        admit(in_alpha_group || y_inverse ||
               (current[0]>0.0 && current[3]>0.0 &&
                current[1]==0.0 && current[2]==0.0),
               QUANTAPDF_ERROR_UNSUPPORTED);
         const double absolute_x=
-            current[0]*x+(current[4]-target.viewport_left);
+            current[0]*x+current[2]*y+(current[4]-target.viewport_left);
         const double absolute_y=
-            current[3]*y+(current[5]-target.viewport_bottom);
+            current[1]*x+current[3]*y+(current[5]-target.viewport_bottom);
         // Path endpoints and Bezier controls may lie outside the viewport.
         // Keep their geometry; the native sampler clips visible coverage.
         const double py=target.exact_page_h-absolute_y;
@@ -1493,7 +1627,9 @@ private:
         closed=true;
     }
     admission& target;
-    clip_identity clip_active=0u;
+    size_t& content_bytes;
+    bool in_alpha_group=false;
+    clip_identity clip_active=0u,mask_active=0u;
     bool clip_pending=false;
     quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     matrix current=identity;
@@ -1875,17 +2011,20 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
         std::vector<clip_identity> leaves(count,0u),roots(count,0u);
         std::vector<quantapdf_composer_graphics_state_id> states(count,0u);
         for(clip_identity id:source.scoped_clip_membership) {
-            if(id==0u)continue;
-            observed[id-1u]=1u;
-            for(clip_identity next=id;next!=0u;next=source.clips[next-1u].parent) {
-                if(needed[next-1u])break;
-                needed[next-1u]=1u;
-            }
+            if(id!=0u)needed[id-1u]=observed[id-1u]=1u;
+        }
+        // Definitions only refer to earlier roots, so one reverse pass
+        // retains the ancestors of every painted Clip and mask.
+        for(size_t i=count;i!=0u;--i) {
+            if(!needed[i-1u])continue;
+            const auto& clip=source.clips[i-1u];
+            if(clip.parent!=0u)needed[clip.parent-1u]=1u;
+            if(clip.other!=0u)needed[clip.other-1u]=1u;
         }
         size_t leaf_count=0u,intersections=0u,state_count=0u;
         for(size_t i=0u;i<count;++i) {
             if(needed[i]) {
-                leaves[i]=static_cast<clip_identity>(++leaf_count);
+                if(source.clips[i].other==0u)leaves[i]=static_cast<clip_identity>(++leaf_count);
                 intersections+=source.clips[i].parent!=0u;
             }
             if(observed[i])states[i]=static_cast<quantapdf_composer_graphics_state_id>(++state_count);
@@ -1905,8 +2044,9 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
         size_t next_node=leaf_count;
         for(size_t i=0u;i<count;++i) {
             if(!needed[i])continue;
-            copy_source_clip(ir.resources.clips[leaves[i]-1u],source.clips[i].path);
-            const auto parent=source.clips[i].parent;
+            const auto& definition=source.clips[i];
+            if(leaves[i]!=0u)copy_source_clip(ir.resources.clips[leaves[i]-1u],definition.path);
+            const auto parent=definition.parent;
             if(parent==0u)roots[i]=leaves[i];
             else {
                 auto& root=ir.resources.clips[next_node++];
@@ -1914,7 +2054,8 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
                 root.member_count=2u;
                 root.members=static_cast<clip_identity *>(QP_SOURCE_C_MALLOC(2u*sizeof(*root.members)));
                 admit(root.members!=nullptr,QUANTAPDF_ERROR_NOMEM);
-                root.members[0]=roots[parent-1u];root.members[1]=leaves[i];
+                root.members[0]=roots[parent-1u];
+                root.members[1]=definition.other==0u?leaves[i]:roots[definition.other-1u];
                 roots[i]=static_cast<clip_identity>(next_node);
             }
             if(observed[i]) {
