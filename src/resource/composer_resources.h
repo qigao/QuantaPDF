@@ -59,6 +59,7 @@ typedef struct quantapdf_composer_graphics_state {
     quantapdf_composer_blend_mode blend_mode;
     quantapdf_composer_clip_id clip_id;
     quantapdf_composer_soft_mask_id soft_mask_id;
+    quantapdf_composer_text_knockout text_knockout;
 } quantapdf_composer_graphics_state;
 
 typedef struct quantapdf_composer_soft_mask_state {

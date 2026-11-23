@@ -60,7 +60,9 @@ static int composer_image_cases(const std::string& filename)
             const quantapdf_composer_clip_options clip{QUANTAPDF_COMPOSER_FILL_NONZERO,{1,0,0,1,1,1}};
             quantapdf_composer_clip_id clip_id=0u;OK(quantapdf_composer_add_clip_path(composer,commands.data(),commands.size(),&clip,&clip_id));
             commands.fill({});
-            const quantapdf_composer_graphics_state_options state{state_mode==2u?0.5f:1.0f,1.0f,QUANTAPDF_COMPOSER_BLEND_NORMAL,clip_id,0u};
+            const quantapdf_composer_graphics_state_options state{
+                state_mode==2u?0.5f:1.0f,1.0f,QUANTAPDF_COMPOSER_BLEND_NORMAL,
+                clip_id,0u,QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT};
             OK(quantapdf_composer_add_graphics_state(composer,&state,&state_id));
         }
         const quantapdf_rect bounds{3,3,9,9},restored{1,9,5,11};

@@ -194,7 +194,9 @@ quantapdf_status quantapdf_validate_ir(
         VALUE(isfinite(v->fill_alpha) && v->fill_alpha >= 0 && v->fill_alpha <= 1 &&
             isfinite(v->stroke_alpha) && v->stroke_alpha >= 0 && v->stroke_alpha <= 1 &&
             v->blend_mode >= QUANTAPDF_COMPOSER_BLEND_NORMAL &&
-            v->blend_mode <= QUANTAPDF_COMPOSER_BLEND_LIGHTEN,
+            v->blend_mode <= QUANTAPDF_COMPOSER_BLEND_LIGHTEN &&
+            v->text_knockout >= QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT &&
+            v->text_knockout <= QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED,
             QUANTAPDF_VALIDATION_GRAPHICS_STATE, i);
         REF(v->clip_id <= r->clip_count, QUANTAPDF_VALIDATION_GRAPHICS_STATE, i, v->clip_id);
         REF(v->soft_mask_id <= r->soft_mask_count, QUANTAPDF_VALIDATION_GRAPHICS_STATE, i, v->soft_mask_id);

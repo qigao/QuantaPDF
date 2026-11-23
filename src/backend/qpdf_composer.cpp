@@ -144,6 +144,9 @@ QPDFObjectHandle make_graphics_state(
     dictionary.replaceKey(
         "/BM",
         QPDFObjectHandle::newName(blend_mode_name(state.blend_mode)));
+    if (state.text_knockout != QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT)
+        dictionary.replaceKey("/TK", QPDFObjectHandle::newBool(
+            state.text_knockout == QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_ENABLED));
     return pdf.makeIndirectObject(dictionary);
 }
 

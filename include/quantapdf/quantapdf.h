@@ -77,13 +77,20 @@ typedef enum quantapdf_composer_blend_mode {
     QUANTAPDF_COMPOSER_BLEND_LIGHTEN = 5
 } quantapdf_composer_blend_mode;
 
-/* Complete current record. Zero clip/mask IDs omit those references. */
+typedef enum quantapdf_composer_text_knockout {
+    QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT = 0,
+    QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_ENABLED = 1,
+    QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED = 2
+} quantapdf_composer_text_knockout;
+
+/* Zero clip/mask IDs omit those references. INHERIT omits the PDF /TK key. */
 typedef struct quantapdf_composer_graphics_state_options {
     float fill_alpha;
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
     quantapdf_composer_clip_id clip_id;
     quantapdf_composer_soft_mask_id soft_mask_id;
+    quantapdf_composer_text_knockout text_knockout;
 } quantapdf_composer_graphics_state_options;
 
 typedef enum quantapdf_composer_soft_mask_mode {

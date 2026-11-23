@@ -42,7 +42,7 @@ static int graphics_state_equal(const quantapdf_composer_graphics_state *a,
 {
     return a->fill_alpha == b->fill_alpha && a->stroke_alpha == b->stroke_alpha &&
         a->blend_mode == b->blend_mode && a->clip_id == b->clip_id &&
-        a->soft_mask_id == b->soft_mask_id;
+        a->soft_mask_id == b->soft_mask_id && a->text_knockout == b->text_knockout;
 }
 
 static int soft_mask_equal(const quantapdf_composer_soft_mask_state *a,

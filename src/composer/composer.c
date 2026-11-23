@@ -896,6 +896,8 @@ quantapdf_status quantapdf_composer_add_graphics_state(
         options->stroke_alpha < 0.0f || options->stroke_alpha > 1.0f ||
         options->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
         options->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN ||
+        options->text_knockout < QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT ||
+        options->text_knockout > QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED ||
         !quantapdf_clip_id_valid(
             composer, options->clip_id) ||
         !quantapdf_soft_mask_id_valid(
@@ -909,6 +911,7 @@ quantapdf_status quantapdf_composer_add_graphics_state(
     state.blend_mode = options->blend_mode;
     state.clip_id = options->clip_id;
     state.soft_mask_id = options->soft_mask_id;
+    state.text_knockout = options->text_knockout;
 
     status = quantapdf_resource_intern_graphics_state(
         &composer->ir.resources, &state,
