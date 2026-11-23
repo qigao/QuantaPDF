@@ -32,7 +32,7 @@ static int alpha_group_cases(const std::string& filename)
         size_t size=0u;
         OK(quantapdf_bitmap_dimensions(bitmap,&w,&h,&stride,&channels));
         OK(quantapdf_bitmap_data(bitmap,&data,&size));
-        CHECK(w==int(12u*dpi/72u) && h==int(4u*dpi/72u) && stride==w*3 && channels==3 &&
+        CHECK(w==int((12u*dpi+71u)/72u) && h==int((4u*dpi+71u)/72u) && stride==w*3 && channels==3 &&
               size==static_cast<size_t>(h*stride));
         pixels.assign(data,data+size);
         quantapdf_drop_bitmap(bitmap);
@@ -206,10 +206,15 @@ static int alpha_group_cases(const std::string& filename)
         const unsigned glyph_samples=((255u-unmasked[i])*16u+127u)/255u;
         CHECK(actual[i]==((32u-glyph_samples)*255u+16u)/32u);
     }
-    for(const char *shows : {"<002d> Tj /Inert gs <002d> Tj","/Inert gs <002d> Tj /Half gs <002d> Tj"}) {
-        CHECK(render(create_alpha_group(
-            std::string("/Half gs BT /F 4 Tf 1 1 Td ")+shows+" ET",""),
-            144u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    std::vector<unsigned char> last_glyph;
+    for(bool last_opaque:{false,true}) {
+        const std::string first=last_opaque?"/Half gs ":"/Inert gs ";
+        const std::string last=last_opaque?"/Inert gs ":"/Half gs ";
+        CHECK(render(create_alpha_group("BT /F 4 Tf 1 1 Td "+first+
+            "<002d> Tj "+last+"1 0 0 1 1 1 Tm <002d> Tj ET",""),
+            144u,actual)==EXIT_SUCCESS);
+        CHECK(render(create_alpha_group(last+"BT /F 4 Tf 1 1 Td <002d> Tj ET",""),
+            144u,last_glyph)==EXIT_SUCCESS && actual==last_glyph);
     }
 
     const auto multiple_text=create_alpha_group(
@@ -630,6 +635,72 @@ static int alpha_group_cases(const std::string& filename)
         show_glyph("7",false)+show_glyph("7",false)+show_glyph("9.5",false),"");
     CHECK(render(glyph_scope,144u,actual)==EXIT_SUCCESS);
     CHECK(render(independent_scope,144u,reference)==EXIT_SUCCESS && actual==reference);
+    // Evaluate the disjoint sample ownership using monochrome glyph masks.
+    // The second glyph partially overlaps the first and crosses the soft mask edge.
+    const std::string clip="1.375 0 2.75 4 re W n ";
+    const std::string glyph_start="BT /F 4 Tf 1 1 Td ",second_glyph="1 0 0 1 1.5 1 Tm <002d> Tj ";
+    const auto union_shape=create_alpha_group(clip+"/Multiply gs "+glyph_start+
+        "<002d> Tj "+second_glyph+"ET","");
+    const auto last_shape=create_alpha_group(clip+glyph_start+second_glyph+"ET","");
+    const auto masked_last_shape=create_alpha_group(clip+"0 0 12 2.5 re W n "+
+        glyph_start+second_glyph+"ET","");
+    for(unsigned dpi:{72u,96u,144u}) {
+        std::vector<unsigned char> last_mask,soft_mask;
+        CHECK(render(union_shape,dpi,reference)==EXIT_SUCCESS);
+        CHECK(render(last_shape,dpi,last_mask)==EXIT_SUCCESS);
+        CHECK(render(masked_last_shape,dpi,soft_mask)==EXIT_SUCCESS);
+        const auto samples=[](unsigned char tone) {return ((255u-tone)*16u+127u)/255u;};
+        bool first_only=false,overlap=false,masked_out=false;
+        CHECK(render(create_alpha_group(clip+glyph_start+"<002d> Tj ET",""),dpi,unmasked)==EXIT_SUCCESS);
+        for(unsigned backdrop_alpha:{0u,128u,255u})for(bool clears:{false,true}) {
+            const std::string backdrop=backdrop_alpha==0u?"":
+                std::string("q ")+(backdrop_alpha==128u?"/Half gs ":"")+
+                ".2 .6 .8 rg 0 0 12 4 re f Q ";
+            const auto page=create_alpha_group(backdrop+clip+glyph_start+
+                "/Half gs /Multiply gs .8 .4 .2 rg [<002d> 713 <002d>] TJ "
+                "/Alpha gs /Screen gs 1 1 0 rg "+(clears?"/Zero gs ":"/Quarter gs ")+
+                second_glyph+"ET","/Half gs 0 0 12 4 re f",text_mask_form);
+            CHECK(render(page,dpi,actual)==EXIT_SUCCESS);
+            const unsigned base[]={51u,153u,204u},first[]={204u,102u,51u},last[]={255u,255u,0u};
+            for(size_t i=0u;i<actual.size();++i) {
+                const size_t c=i%3u;
+                const unsigned top=samples(last_mask[i]);
+                const unsigned bottom=samples(reference[i])-top;
+                const unsigned masked=samples(soft_mask[i]);
+                first_only|=bottom!=0u;
+                overlap|=samples(unmasked[i])>bottom;
+                masked_out|=top>masked;
+                const size_t y=(i/3u)/(12u*dpi/72u);
+                unsigned page_samples=0u;
+                for(unsigned sy=0u;sy<4u;++sy)
+                    page_samples+=unsigned((8u*y+2u*sy+1u)*72u<32u*dpi);
+                const unsigned pixel_alpha=(backdrop_alpha*page_samples+2u)/4u;
+                const double a1=bottom/32.0,a2=clears?0.0:masked/128.0;
+                const double ab=pixel_alpha/255.0,keep=ab*(1.0-a1-a2);
+                const double alpha=a1+a2+keep;
+                const unsigned out_alpha=static_cast<unsigned>(255.0*alpha+0.5);
+                const double multiply=base[c]*first[c]/255.0;
+                const double screen=base[c]+last[c]-base[c]*last[c]/255.0;
+                const unsigned rgb=out_alpha==0u?0u:static_cast<unsigned>(
+                    (keep*base[c]+a1*((1.0-ab)*first[c]+ab*multiply)+
+                     a2*((1.0-ab)*last[c]+ab*screen))/alpha+0.5);
+                const unsigned expected=(rgb*out_alpha+255u*(255u-out_alpha)+127u)/255u;
+                if(actual[i]!=expected)
+                    std::fprintf(stderr,"Text knockout: dpi=%u backdrop=%u clears=%d byte=%zu got=%u want=%u\n",
+                        dpi,backdrop_alpha,int(clears),i,unsigned(actual[i]),expected);
+                CHECK(actual[i]==expected);
+            }
+        }
+        CHECK(first_only && overlap && masked_out);
+        const auto restored_clip=create_alpha_group(
+            "q 1.75 0 2.25 2.5 re W n /Half gs "+glyph_start+
+            "1 0 0 rg <002d> Tj Q /F 4 Tf 0 1 0 rg 1 0 0 1 1 1 Tm <002d> Tj ET "+
+            "BT /F 4 Tf 7 1 Td <002d> Tj ET","");
+        const auto unclipped=create_alpha_group("0 1 0 rg "+glyph_start+
+            "<002d> Tj ET BT /F 4 Tf 7 1 Td <002d> Tj ET","");
+        CHECK(render(restored_clip,dpi,actual)==EXIT_SUCCESS);
+        CHECK(render(unclipped,dpi,unmasked)==EXIT_SUCCESS && actual==unmasked);
+    }
     for(const char *malformed:{"/BadTK gs","BT ET /BadTK gs",
         "BT /Separate gs ET","/Separate gs BT /Knockout gs ET"}) {
         CHECK(render(create_alpha_group(malformed,""),72u,actual,
@@ -637,9 +708,7 @@ static int alpha_group_cases(const std::string& filename)
     }
 
     for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f","/ColorBurn gs /Plain Do",
-        "/ColorBurn gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
-        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj /Reset gs <002d> Tj ET",
-        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj 1 0 0 rg <002d> Tj ET"}) {
+        "/ColorBurn gs BT /F 4 Tf 1 1 Td <002d> Tj ET"}) {
         CHECK(render(create_alpha_group(unsupported,""),72u,actual,
             QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }

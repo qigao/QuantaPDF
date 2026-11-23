@@ -381,6 +381,10 @@ struct outline_paint_state {
     double opacity;
     quantapdf_composer_blend_mode blend;
     bool operator==(const outline_paint_state&) const=default;
+    bool uses_transparency() const
+    {
+        return opacity!=1.0 || blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL || mask!=0u;
+    }
 };
 struct character_value {
     quantapdf_quad quad;
@@ -485,13 +489,13 @@ struct projection {
         return UINT32_C(0xff000000)|(channel(g.fill[0])<<16u)|
             (channel(g.fill[1])<<8u)|channel(g.fill[2]);
     }
-    void begin_outline_paint(const outline_paint_state& state,bool merge_glyph_coverage)
+    void begin_outline_paint(const outline_paint_state& state)
     {
         if(source_mixed.on_text) {
             const auto result=source_mixed.on_text(source_mixed.user,state.clip,state.mask,state.opacity,state.blend);
             need(result==QUANTAPDF_OK,result);
         }
-        outline_paints.push_back({{},state.argb,merge_glyph_coverage});
+        outline_paints.push_back({{},state.argb,0u});
     }
     void outline(font const& face,unsigned code,graphics const& g,matrix const& m)
     {
@@ -624,23 +628,27 @@ public:
     void count(size_t n) { need(args.size()==n); }
     void inside() { need(in_text); }
     void move(double x,double y) { inside(); line=concat(line,matrix{1,0,0,1,x,y}); text=line; }
+    void finish_outline_show()
+    {
+        if(previous_show && previous_show->uses_transparency() && !p.outline_paints.back().glyphs.empty())
+            needs_knockout=true;
+    }
     void begin_outline_show()
     {
         const outline_paint_state state{p.outline_color(g),g.clip_id,g.mask_clip_id,g.opacity,g.blend};
-        // Text knockout applies across all shows in a BT/ET object.
-        // Same-state glyphs share their coverage. Changes need a knockout group.
-        if(knockout_paint) {
-            supported(*knockout_paint==state);
-            return;
+        if(object_knockout) {
+            if(state.uses_transparency() && previous_show==state)return;
+            finish_outline_show();
+            previous_show=state;
         }
-        const bool merge_glyph_coverage=object_knockout &&
-            (g.opacity!=1.0 || g.blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL);
-        if(merge_glyph_coverage) {
-            supported(!saw_show);
-            knockout_paint=state;
-        }
-        saw_show=true;
-        p.begin_outline_paint(state,merge_glyph_coverage);
+        p.begin_outline_paint(state);
+    }
+    void end_outline_text()
+    {
+        finish_outline_show();
+        if(needs_knockout)
+            for(size_t i=first_outline_paint;i<p.outline_paints.size();++i)
+                p.outline_paints[i].knockout_object=first_outline_paint+1u;
     }
     void show(Obj v,bool begin_paint=true) { inside(); need(v.isString());
         if(p.outline_mode && begin_paint)begin_outline_show();
@@ -711,9 +719,15 @@ public:
                 need(status==QUANTAPDF_OK,status);
             }
             in_text=true;object_knockout=g.text_knockout;
-            saw_show=false;knockout_paint.reset();text=line=identity;
+            first_outline_paint=p.outline_paints.size();
+            previous_show.reset();needs_knockout=false;
+            text=line=identity;
         }
-        else if(op=="ET") { count(0); inside(); in_text=false; }
+        else if(op=="ET") {
+            count(0); inside();
+            if(p.outline_mode && object_knockout)end_outline_text();
+            in_text=false;
+        }
         else if(op=="Tf") { count(2); g.face=p.get_font(resource("/Font",args[0])); g.size=number(args[1]); }
         else if(op=="Tc" || op=="Tw" || op=="Tz" || op=="TL" || op=="Ts") {
             count(1); double n=number(args[0]);
@@ -774,8 +788,9 @@ public:
     void handleEOF() override { need(args.empty() && stack.empty() && !in_text && marked==0u && !pending_clip); }
 private:
     projection& p; Obj resources; graphics g; size_t depth,marked=0; bool in_text=false;
-    bool saw_show=false,object_knockout=true;
-    std::optional<outline_paint_state> knockout_paint;
+    bool object_knockout=true,needs_knockout=false;
+    size_t first_outline_paint=0u;
+    std::optional<outline_paint_state> previous_show;
     // Text/line matrices are not part of the saved graphics-state stack.
     matrix text=identity,line=identity;
     std::vector<graphics> stack; std::vector<Obj> args;
