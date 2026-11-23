@@ -85,7 +85,18 @@ static int prepared_contracts(quantapdf_ir *ir,
     CHECK(prepared_denied(ir,&limits,&device)==0);ir->operations[0]=old_op;
     limits.raster.max_operations=0u;
     CHECK(prepared_denied(ir,&limits,&device)==0);limits.raster=*raster;
-    device.dpi=73.0f;CHECK(prepared_denied(ir,&limits,&device)==0);device.dpi=96.0f;
+    device.dpi=73.5f;
+    memset(&a,0xa5,sizeof(a));
+    CHECK(quantapdf_native_device_ir_render_v1(ir,72.5f,raster,&a)==QUANTAPDF_ERROR_UNSUPPORTED && a.pixels==NULL && a.size==0u);
+    OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,&plan));
+    CHECK(plan.dpi==73.5f && plan.physical.dpi==73.5f);
+    memset(&a,0,sizeof(a));OK(quantapdf_native_execute_page_v1(&plan,NULL,&a));
+    CHECK(a.width==9u && a.height==9u);
+    for(size_t y=0u;y<9u;++y)for(size_t x=0u;x<9u;++x) {
+        const unsigned char *pixel=a.pixels+4u*(y*9u+x);
+        CHECK(pixel[0]==(x<4u && y<4u?0u:255u) && pixel[1]==pixel[0] && pixel[2]==255u && pixel[3]==255u);
+    }
+    quantapdf_ir_raster_image_dispose(&a);device.dpi=96.0f;
 
     memset(clips,0,sizeof(clips));memset(gs,0,sizeof(gs));
     for(size_t i=0u;i<2u;++i) {
@@ -107,7 +118,7 @@ static int prepared_contracts(quantapdf_ir *ir,
     OK(quantapdf_native_prepare_page_v1(ir,&limits.raster,&device,
         &plan));
     CHECK(plan.route==QP_NATIVE_PREPARED_SCENE &&
-          plan.usage.clips_used==7u && plan.usage.states_used==1u &&
+          plan.usage.clips_used==3u && plan.usage.states_used==1u && plan.usage.clip_leaves==2u &&
           plan.usage.commands==15u);
     members[1]=3u;CHECK(prepared_denied(ir,&limits,&device)==0);members[1]=2u;
     members[0]=0u;CHECK(prepared_denied(ir,&limits,&device)==0);members[0]=1u;
@@ -332,6 +343,65 @@ static int resource_ledger_contracts(const quantapdf_ir *source)
         quantapdf_ir_raster_image_dispose(&out);
     }
     puts("Resource ledger: unique RAW inputs, repeated/clipped placements, exact byte peaks and N-1 passed");
+    return 0;
+}
+
+static int bilinear_image_contracts(void)
+{
+    unsigned char samples[] = {0u, 251u};
+    quantapdf_composer_image_state image = {0};
+    image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW;
+    image.data = samples;
+    image.size = sizeof(samples);
+    image.width = 1u;
+    image.height = 2u;
+    image.components = 1;
+    quantapdf_composer_page_state page = {2.0f, 4.0f, UINT32_C(0xffffffff), 0};
+    quantapdf_composer_operation op = {0};
+    op.kind = QUANTAPDF_COMPOSER_OPERATION_IMAGE;
+    op.bounds = (quantapdf_rect){0, 0.25, 1.5, 3.25};
+    op.value.image.image_id = 1u;
+    op.value.image.options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+    quantapdf_ir ir = {0};
+    ir.pages = &page;
+    ir.page_count = 1u;
+    ir.operations = &op;
+    ir.operation_count = 1u;
+    ir.resources.images = &image;
+    ir.resources.image_count = ir.resources.image_capacity = 1u;
+
+    quantapdf_native_page_device device = {0};
+    device.dpi = 72.0f;
+    quantapdf_ir_raster_scoped_mixed_v5_limits limits = {8u, 1u, 4u, 1024u, 2u, 6u};
+    quantapdf_native_prepared_page_v1 prepared;
+    quantapdf_native_execution_receipt_v1 receipt;
+    quantapdf_ir_raster_image out = {0};
+    OK(quantapdf_native_prepare_page_v1(&ir, &limits, &device, &prepared));
+    OK(quantapdf_native_execute_page_v1(&prepared, &receipt, &out));
+    CHECK(receipt.sample_tests_exact && at(&out, 0u, 1u) == UINT32_C(0x000000ff));
+    const size_t nearest_work = receipt.sample_tests;
+    quantapdf_ir_raster_image_dispose(&out);
+
+    image.interpolate = 1;
+    limits.max_sample_tests = nearest_work + 8u * 4u;
+    OK(quantapdf_native_prepare_page_v1(&ir, &limits, &device, &prepared));
+    quantapdf_native_compiled_page_v1 compiled;
+    OK(quantapdf_native_compiled_page_compile_v1(&prepared, &compiled));
+    image.interpolate = 0;
+    OK(quantapdf_native_compiled_page_execute_v1(&compiled, &receipt, &out));
+    quantapdf_native_compiled_page_dispose_v1(&compiled);
+    CHECK(receipt.sample_tests == limits.max_sample_tests && receipt.source_pixels == 2u &&
+          receipt.drawn_pixels == 6u && at(&out, 0u, 0u) == UINT32_C(0x404040ff) &&
+          at(&out, 0u, 1u) == UINT32_C(0x545454ff) &&
+          at(&out, 1u, 1u) == UINT32_C(0xa9a9a9ff) &&
+          at(&out, 0u, 2u) == UINT32_C(0xfbfbfbff));
+    quantapdf_ir_raster_image_dispose(&out);
+
+    image.interpolate = 1;
+    --limits.max_sample_tests;
+    OK(quantapdf_native_prepare_page_v1(&ir, &limits, &device, &prepared));
+    CHECK(resource_denied(&prepared) == 0);
+    puts("Bilinear Gray: single-axis clamp, one coverage rounding, frozen resource, exact tap budget");
     return 0;
 }
 
@@ -679,6 +749,7 @@ int main(void) {
     CHECK(prepared_contracts(&ir,&lim)==0);
     CHECK(work_ledger_contracts(&ir)==0);
     CHECK(resource_ledger_contracts(&ir)==0);
+    CHECK(bilinear_image_contracts()==0);
     CHECK(owned_geometry_contracts(&ir)==0);
     CHECK(compiled_page_contracts(&ir)==0);
     /* True 4/3-device-space subpixel edge, not 72-DPI enlargement. */

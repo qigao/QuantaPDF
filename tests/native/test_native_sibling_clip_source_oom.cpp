@@ -22,7 +22,7 @@ namespace {
 thread_local bool track_c_allocation=false,stage_armed=false;
 thread_local size_t c_fail_index=0u,c_allocations=0u,c_faults=0u;
 thread_local unsigned stage_target=0u,stage_observed=0u,stage_faults=0u;
-size_t atomic_failures=0u;
+size_t atomic_failures=0u,graph_promotions=0u;
 }
 extern "C" void quantapdf_source_stage_oom_arm(unsigned phase) noexcept
 {
@@ -273,7 +273,7 @@ static std::string original_pdf(const std::string& content,const scenario& sc,
             "<< /Type /Page /MediaBox [0 0 16 12] >>"));
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -821,7 +821,7 @@ static bool source_failures(const scenario& sc)
         budget=source_budget;budget.max_drawn_pixels=drawn-1u;
         CHECK(atomic_rejection(pdf,budget));
     }
-    CHECK(atomic_rejection(original_pdf(content+"BT ET",sc,true),source_budget));
+    CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",sc,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",sc,true),source_budget));
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK &&
@@ -837,25 +837,34 @@ static bool bounded_scope_refusals()
     const std::string p=paint_source(paint::red_path),i=paint_source(paint::red_image);
     const std::string a="q 2 2 10 7 re W n ",b="q 2 2 10 7 re W* n ";
     const std::string ready=a+p+"Q "+b+p+"Q ";
+    const std::string rc="1 0 0 rg 2 2 10 7 re f ";
+    const std::pair<std::string,std::string> admitted[]={
+        {a+"Q "+b+p+"Q",rc},
+        {a+p+"Q "+b+"Q",rc},
+        {p+a+"Q "+b+p+"Q",p+rc},
+        {a+p+"Q "+b+"Q "+p,rc+p},
+        {ready+a+p+"Q",rc+rc+rc},
+        {ready+p+" "+b+"Q",rc+rc+p},
+        {a+i+"Q "+b+i+i+"Q",rc+rc+rc},
+        {i+a+i+"Q "+b+i+"Q",p+rc+rc},
+        {p+p+a+p+"Q "+b+i+"Q",p+p+rc+rc},
+        {a+p+"Q q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q",rc+rc},
+        {a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
+         rc+"1 0 0 rg 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h f"},
+        {a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
+         // Q restored black. Clip y<=9 cuts the diagonal at x=3.25.
+         rc+"0 g 2 2 m 12 2 l 3.25 9 l 2 9 l h f"}
+    };
+    for(const auto& pair:admitted) {
+        CHECK(source_fill_equivalent(pair.first,pair.second,cases[18]));++graph_promotions;
+    }
     const std::vector<std::string> bad={
-        a+"Q "+b+p+"Q", /* A unused */
-        a+p+"Q "+b+"Q", /* B unused */
-        p+a+"Q "+b+p+"Q", /* a GS0 prefix cannot replace first-leaf paint */
-        a+p+"Q "+b+"Q "+p, /* a GS0 suffix cannot replace second-leaf paint */
-        ready+a+p+"Q", /* third definition after both siblings */
-        ready+p+" "+b+"Q", /* even an unused third definition refuses */
         a+p+p+"Q "+b+p+p+p+"Q", /* fifth PATH */
-        a+i+"Q "+b+i+i+"Q", /* third Image */
-        i+a+i+"Q "+b+i+"Q", /* Image-only prefix cannot exceed two Images */
-        p+p+a+p+"Q "+b+i+"Q", /* three mixed PATHs within four layers */
         i+p+i+a+p+"Q "+b+p+"Q", /* mixed prefix past one of each */
         p+i+p+a+i+"Q "+b+p+"Q",
         a+p+"Q q 2 2 10 7 re W "+p+"n Q", /* n must immediately follow W */
-        a+p+"Q q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q", /* ten B commands */
-        a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h 6 6 m 7 6 l 6 7 l h W n "+p+"Q",
-        ready+"BT ET",
+        ready+"BT 1 Tr ET",
         ready+"/Unqualified gs",
-        a+p+"Q "+b+"2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h f Q",
     };
     CHECK(source_fill_equivalent(a+p+"Q q 2 2 m 12 2 l 2 10 l 4 3 m 7 3 l 4 6 l h W n "+p+"Q",
         a+p+"Q q 2 2 m 12 2 l 2 10 l h 4 3 m 7 3 l 4 6 l h W n "+p+"Q",cases[18]));
@@ -957,10 +966,10 @@ static bool run_tests()
     CHECK(staging_failures());
     for(size_t i:{8u,11u,20u})CHECK(source_failures(cases[i]));
     CHECK(bounded_scope_refusals() && source_controls());
-    CHECK(positive_count==253u && fault_count==248u && atomic_failures==40u);
+    CHECK(positive_count==253u && fault_count==248u && atomic_failures==28u && graph_promotions==12u);
     std::fprintf(stderr,"[native.sibling_clip_source_oom] %zu detached originals, %zu renders, "
-        "%zu C faults, 8 C++ staging faults, %zu Source refusals, current Source controls completed\n",
-        positive_count,2u*positive_count,fault_count,atomic_failures);
+        "%zu C faults, 8 C++ staging faults, %zu Source refusals, %zu promoted full RGBA originals, current Source controls completed\n",
+        positive_count,2u*positive_count,fault_count,atomic_failures,graph_promotions);
     return true;
 }
 

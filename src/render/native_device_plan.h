@@ -6,9 +6,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Private, bounded pure-C11 device geometry planner. Public 72/96/144
- * DPI orthogonal display turns and the native V10 96/144-DPI
- * device-space IR projection reuse exact dimensions and pixel budgets.
+/* Private, bounded pure-C11 device geometry planner. Positive binary32
+ * DPI, orthogonal display turns and native device-space IR projection
+ * share exact dimensions and pixel budgets.
  * It never paints, selects providers, decodes or changes the public ABI. */
 #define QUANTAPDF_NATIVE_DEVICE_FIT_V1 1u
 #define QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1 2u
@@ -19,7 +19,11 @@
  * All affine arrays use x'=a*x+c*y+e, y'=b*x+d*y+f. */
 typedef struct quantapdf_native_device_plan {
     size_t width, height, stride, size;
-    unsigned dpi, mode;
+    /* Exact counts of visible 4x4 sample columns/rows, before any floating
+     * conversion. Fractional fringes use these counts in every Scene draw. */
+    size_t sample_width, sample_height;
+    float dpi;
+    unsigned mode;
     double width_points, height_points;
     double source_to_display[6]; /* source PDF -> displayed PDF Y-up */
     double source_to_device[6];  /* source PDF -> integer viewport Y-down */
@@ -30,18 +34,18 @@ typedef struct quantapdf_native_device_plan {
 extern "C" {
 #endif
 
-/* Exact checked decimal endpoint subtraction, Unit/DPI multiplication and
- * integer quotient/remainder ceil precede any floating conversion. Inputs
+/* Checked decimal endpoint subtraction and exact binary32 DPI products
+ * determine integer pixel/sample limits before any floating mapping. Inputs
  * are bounded ASCII boxes (four space-separated decimals, <=95 bytes),
  * tokens <=20 bytes, <=12 fractional digits, significands <=2^53-1.
- * Unit is positive and <=128; DPI is 72,96,144; rotation is 0,90,180,270.
+ * Unit is positive and <=128; DPI is a positive finite binary32 value; rotation is 0,90,180,270.
  * Crop must lie inside Media. Work is allocation-free and provider-free.
  * Invalid arguments: ARGUMENT; outside the admitted numeric/geometry/budget
  * envelope: UNSUPPORTED. All failures clear the complete output. Inputs
  * and output must not alias. No retry through approximate arithmetic. */
 quantapdf_status quantapdf_native_device_plan_create(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
-    int rotation, unsigned dpi, size_t max_pixels,
+    int rotation, float dpi, size_t max_pixels,
     quantapdf_native_device_plan *out);
 
 /* Physical grid: exact decimal ceil determines allocation, while DPI/72
@@ -52,7 +56,7 @@ quantapdf_status quantapdf_native_device_plan_create(
  * Composer semantic path flipped around its binary32 canvas height. */
 quantapdf_status quantapdf_native_device_plan_create_physical(
     const char *media_ascii, const char *crop_ascii, const char *unit_ascii,
-    int rotation, unsigned dpi, size_t max_pixels,
+    int rotation, float dpi, size_t max_pixels,
     quantapdf_native_device_plan *out);
 
 #ifdef __cplusplus
@@ -73,7 +77,7 @@ static inline int quantapdf_native_device_plan_matches_page_mode(
     if (p == NULL || p->mode != mode ||
         (mode != QUANTAPDF_NATIVE_DEVICE_FIT_V1 &&
          mode != QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1) ||
-        (p->dpi != 72u && p->dpi != 96u && p->dpi != 144u) ||
+        !isfinite(p->dpi) || p->dpi <= 0.0f ||
         max_pixels == 0u || p->width == 0u || p->height == 0u ||
         p->width > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
         p->height > QUANTAPDF_NATIVE_DEVICE_MAX_PIXELS ||
@@ -83,6 +87,8 @@ static inline int quantapdf_native_device_plan_matches_page_mode(
         p->height > SIZE_MAX / (p->width * 4u) ||
         p->stride != p->width * 4u ||
         p->size != p->stride * p->height ||
+        p->sample_width > p->width * 4u ||
+        p->sample_height > p->height * 4u ||
         !isfinite(p->width_points) || !isfinite(p->height_points) ||
         p->width_points <= 0.0 || p->height_points <= 0.0 ||
         p->width_points > 65536.0 || p->height_points > 65536.0 ||

@@ -253,7 +253,7 @@ static std::string original_pdf(const std::string& content,const scenario& sc,
             "<< /Type /Page /MediaBox [0 0 16 12] >>"));
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -775,7 +775,7 @@ static bool source_failures(const scenario& sc)
         if(is_image(item.kind))drawn+=item.kind==paint::cyan_small_image?9u:216u;
     budget=source_budget;budget.max_drawn_pixels=drawn-1u;
     CHECK(atomic_rejection(pdf,budget));
-    CHECK(atomic_rejection(original_pdf(content+"BT ET",sc,true),source_budget));
+    CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",sc,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",sc,true),source_budget));
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK &&
@@ -792,12 +792,12 @@ static bool bounded_prefix_refusals()
     const std::string clip="2 2 10 7 re ";
     const std::string a="q "+clip+"W n ",b="q "+clip+"W* n ";
     const std::vector<std::string> bad={
-        p+a+p+b+"Q Q", /* second Clip unused */
-        p+a+p+"Q "+a+p+"Q BT ET", /* late Text after valid sibling scopes */
-        p+a+b+p+"Q "+clip+"W n Q", /* third definition after restored first */
+        p+a+p+"Q "+a+p+"Q BT 1 Tr ET", /* late Text after valid sibling scopes */
         p+p+p+a+p+p+"Q", /* fifth PATH */
-        i+a+i+b+i+"Q Q", /* two GS plus prefix needs three Images */
     };
+    CHECK(source_fill_equivalent(p+a+p+b+"Q Q",p+"1 0 0 rg "+clip+"f",cases[9]));
+    CHECK(source_fill_equivalent(p+a+b+p+"Q "+clip+"W n Q",p+"1 0 0 rg "+clip+"f",cases[9]));
+    CHECK(source_fill_equivalent(i+a+i+b+i+"Q Q",p+"1 0 0 rg "+clip+"f 1 0 0 rg "+clip+"f",cases[9]));
     CHECK(source_fill_equivalent(p+"q 2 2 10 7 re 4 3 3 2 re W n "+p+"Q",
         p+"1 0 0 rg 2 2 10 7 re f",cases[9]));
     for(const auto& content:{i+p+i+a+p+"Q",p+i+p+a+i+"Q"}) {

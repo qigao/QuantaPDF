@@ -52,7 +52,9 @@ static int composer_geometry_cases(const std::string& filename)
             const quantapdf_composer_clip_options clip{QUANTAPDF_COMPOSER_FILL_EVEN_ODD,{1,0,0,1,2,3}};
             quantapdf_composer_clip_id clip_id=0u;OK(quantapdf_composer_add_clip_path(composer,commands.data(),commands.size(),&clip,&clip_id));
             commands.fill({});
-            const quantapdf_composer_graphics_state_options state{0.5f,0.25f,QUANTAPDF_COMPOSER_BLEND_NORMAL,clip_id,0u};
+            const quantapdf_composer_graphics_state_options state{
+                0.5f,0.25f,QUANTAPDF_COMPOSER_BLEND_NORMAL,clip_id,0u,
+                QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT};
             OK(quantapdf_composer_add_graphics_state(composer,&state,&state_id));
             quantapdf_composer_gradient_stop stops[]={{0.0f,UINT32_C(0xffff0000)},{1.0f,UINT32_C(0xff0000ff)}};
             quantapdf_composer_linear_gradient_options gradient{};gradient.struct_size=sizeof(gradient);

@@ -21,7 +21,12 @@ static int image_equal(const quantapdf_composer_image_state *a,
 {
     return a->format == b->format && a->width == b->width &&
         a->height == b->height && a->components == b->components &&
-        a->has_alpha == b->has_alpha && a->size == b->size &&
+        (a->format != QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG ||
+         a->jpeg_color_transform == b->jpeg_color_transform) &&
+        a->has_alpha == b->has_alpha && a->interpolate == b->interpolate &&
+        a->mask_width == b->mask_width && a->mask_height == b->mask_height &&
+        a->mask_interpolate == b->mask_interpolate && a->mask_bits == b->mask_bits &&
+        a->size == b->size &&
         a->alpha_size == b->alpha_size && bytes_equal(a->data, b->data, a->size) &&
         bytes_equal(a->alpha_data, b->alpha_data, a->alpha_size);
 }
@@ -37,7 +42,7 @@ static int graphics_state_equal(const quantapdf_composer_graphics_state *a,
 {
     return a->fill_alpha == b->fill_alpha && a->stroke_alpha == b->stroke_alpha &&
         a->blend_mode == b->blend_mode && a->clip_id == b->clip_id &&
-        a->soft_mask_id == b->soft_mask_id;
+        a->soft_mask_id == b->soft_mask_id && a->text_knockout == b->text_knockout;
 }
 
 static int soft_mask_equal(const quantapdf_composer_soft_mask_state *a,
@@ -79,15 +84,50 @@ static int command_equal(
     return 0;
 }
 
+static int optional_clip_values_equal(const double *a, const double *b, size_t count)
+{
+    return a == b || (a != NULL && b != NULL && bytes_equal(a, b, count * sizeof(*a)));
+}
+
+static int mask_transfer_equal(const quantapdf_mask_transfer *a,
+    const quantapdf_mask_transfer *b, size_t count)
+{
+    if (a == b) return 1;
+    for (size_t i = 0u; i < count; ++i) {
+        if (a[i].end != b[i].end || a[i].upper_bound != b[i].upper_bound ||
+            a[i].encode[0] != b[i].encode[0] || a[i].encode[1] != b[i].encode[1] ||
+            a[i].domain[0] != b[i].domain[0] || a[i].domain[1] != b[i].domain[1] ||
+            a[i].has_range != b[i].has_range ||
+            (a[i].has_range && (a[i].range[0] != b[i].range[0] || a[i].range[1] != b[i].range[1])) ||
+            a[i].c0 != b[i].c0 || a[i].c1 != b[i].c1 || a[i].exponent != b[i].exponent ||
+            a[i].sample_offset != b[i].sample_offset || a[i].sample_count != b[i].sample_count ||
+            a[i].sample_bits != b[i].sample_bits || a[i].sample_order != b[i].sample_order ||
+            a[i].program_offset != b[i].program_offset || a[i].program_size != b[i].program_size ||
+            a[i].instruction_offset != b[i].instruction_offset || a[i].instruction_count != b[i].instruction_count ||
+            !bytes_equal(a[i].sample_encode, b[i].sample_encode, sizeof(a[i].sample_encode)) ||
+            !bytes_equal(a[i].sample_decode, b[i].sample_decode, sizeof(a[i].sample_decode)))
+            return 0;
+    }
+    return 1;
+}
+
 static int clip_equal(const quantapdf_composer_clip_state *a,
                       const quantapdf_composer_clip_state *b)
 {
     size_t i;
     if (a->kind != b->kind)
         return 0;
-    if (a->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
-        return a->member_count == b->member_count &&
-            bytes_equal(a->members, b->members, a->member_count * sizeof(*a->members));
+    if (a->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+        a->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL)
+        return a->member_count == b->member_count && a->knockout == b->knockout &&
+            a->mask_mode == b->mask_mode && a->backdrop_luminosity == b->backdrop_luminosity &&
+            a->transfer_count == b->transfer_count &&
+            mask_transfer_equal(a->transfer, b->transfer, a->transfer_count) &&
+            a->transfer_data_bytes == b->transfer_data_bytes &&
+            bytes_equal(a->transfer_data, b->transfer_data, a->transfer_data_bytes) &&
+            bytes_equal(a->members, b->members, a->member_count * sizeof(*a->members)) &&
+            optional_clip_values_equal(a->member_opacities, b->member_opacities, a->member_count) &&
+            optional_clip_values_equal(a->member_luminosities, b->member_luminosities, a->member_count);
     if (a->command_count != b->command_count || a->fill_rule != b->fill_rule ||
         !transform_equal(&a->transform, &b->transform))
         return 0;
@@ -407,6 +447,10 @@ static void drop_clip(quantapdf_composer_clip_state *value)
 {
     free(value->commands);
     free(value->members);
+    free(value->member_opacities);
+    free(value->member_luminosities);
+    free(value->transfer);
+    free(value->transfer_data);
     memset(value, 0, sizeof(*value));
 }
 
@@ -445,6 +489,26 @@ quantapdf_status quantapdf_resource_intern_clip(
             status = QUANTAPDF_ERROR_UNSUPPORTED;
         else
             bytes += candidate->member_count * sizeof(*candidate->members);
+    }
+    const size_t sample_bytes = sizeof(double) * (size_t)(
+        (candidate->member_opacities != NULL) + (candidate->member_luminosities != NULL));
+    if (status == QUANTAPDF_OK && sample_bytes != 0u) {
+        if (candidate->member_count > (SIZE_MAX - bytes) / sample_bytes)
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+        else
+            bytes += candidate->member_count * sample_bytes;
+    }
+    if (status == QUANTAPDF_OK && candidate->transfer_count != 0u) {
+        if (candidate->transfer_count > (SIZE_MAX - bytes) / sizeof(*candidate->transfer))
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+        else
+            bytes += candidate->transfer_count * sizeof(*candidate->transfer);
+    }
+    if (status == QUANTAPDF_OK) {
+        if (candidate->transfer_data_bytes > SIZE_MAX - bytes)
+            status = QUANTAPDF_ERROR_UNSUPPORTED;
+        else
+            bytes += candidate->transfer_data_bytes;
     }
     if (status == QUANTAPDF_OK)
         existing = quantapdf_resource_find_clip(registry, candidate);

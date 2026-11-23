@@ -224,6 +224,27 @@ static int unpainted_clip()
     return EXIT_SUCCESS;
 }
 
+static int fractional_curves()
+{
+    const char *const paths[][2]={
+        {"4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h",
+         "q 1 0 0 1 1 0 cm 3 5 m 3.125 18 19 18 19 5 c 19 4 l 3 4 l h"},
+        {"4 5 m 20.125 18 20 5 v 20 4 l 4 4 l h",
+         "q 1 0 0 1 1 0 cm 3 5 m 19.125 18 19 5 v 19 4 l 3 4 l h"},
+        {"4 5 m 4.125 18 20 5 y 20 4 l 4 4 l h",
+         "q 1 0 0 1 1 0 cm 3 5 m 3.125 18 19 5 y 19 4 l 3 4 l h"}
+    };
+    for(const auto& path:paths)for(bool even:{false,true})for(int quarters:{4,5})
+    for(int rotation:{0,90})for(int dpi:{72,96,144}) {
+        const std::string paint=even?" f*":" f";
+        std::vector<unsigned char> actual,reference;
+        CHECK(rendered_rgb(original(path[0]+paint,false,quarters,rotation),quarters,rotation,dpi,actual)==EXIT_SUCCESS);
+        CHECK(rendered_rgb(original(path[1]+paint+" Q",false,quarters,rotation),quarters,rotation,dpi,reference)==EXIT_SUCCESS);
+        CHECK(actual==reference);
+    }
+    return EXIT_SUCCESS;
+}
+
 static int negative(void)
 {
     const char *const invalid[]={
@@ -234,10 +255,9 @@ static int negative(void)
         "4 5 m 4 18 20 18 20 c 20 4 l 4 4 l h f",
         "4 5 m true 18 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 0 c 20 4 l 4 4 l h f",
-        "4 5 m 4.125 18 20 18 20 5 c 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 18 20 5 y 20 4 l 4 4 l h f",
-        "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f BT ET",
+        "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f BT 1 Tr ET",
         "1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f 4 5 m 4 18 20 18 20 5 c S",
         "q 16 0 0 12 8 3 cm /I Do Q 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f Q",
         "q 16 0 0 12 8 3 cm /Missing Do Q 1 0 0 rg 4 5 m 4 18 20 18 20 5 c 20 4 l 4 4 l h f"
@@ -386,13 +406,12 @@ static int shorthand_negative(void)
         "4 5 m 20 18 20 v 20 4 l 4 4 l h f",
         "4 5 m 4 18 20 5 0 y 20 4 l 4 4 l h f",
         "4 5 m /Bad 18 20 5 v 20 4 l 4 4 l h f",
-        "4 5 m 20.125 18 20 5 v 20 4 l 4 4 l h f",
         "4 5 m 20 18 20 5 v 20 4 l 4 4 l h S",
         "4 5 m 4 18 20 5 y 20 4 l 4 4 l h B",
         "1 0 0 rg 4 5 m 20 18 20 5 v 20 4 l 4 4 l h f "
         "4 5 m 4 18 20 5 y S",
         "q 16 0 0 12 8 3 cm /I Do Q 1 0 0 rg "
-        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h f BT ET"
+        "4 5 m 20 18 20 5 v 20 4 l 4 4 l h f BT 1 Tr ET"
     };
     for(const char *content:bad)
     for(int dpi:{72,96,144}) {
@@ -421,6 +440,7 @@ int main()
     CHECK(positive()==EXIT_SUCCESS);
     CHECK(path_scope_positive()==EXIT_SUCCESS);
     CHECK(unpainted_clip()==EXIT_SUCCESS);
+    CHECK(fractional_curves()==EXIT_SUCCESS);
     CHECK(negative()==EXIT_SUCCESS);
     CHECK(shorthand_positive()==EXIT_SUCCESS);
     CHECK(viewport_and_close_positive()==EXIT_SUCCESS);

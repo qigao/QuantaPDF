@@ -72,7 +72,7 @@ static std::string original(const std::string& first,
         blank.replaceKey("/Parent",pages);
         blank.replaceKey("/Contents",pdf->newStream(""));
         auto text=pdf->makeIndirectObject(Obj::parse(page_dictionary));
-        text.replaceKey("/Contents",pdf->newStream("BT ET"));
+        text.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         parent=pdf->makeIndirectObject(Obj::parse("<< /Type /Pages >>"));
         parent.replaceKey("/Parent",pages);
         parent.replaceKey("/Kids",Obj::newArray({text,page}));
@@ -578,32 +578,46 @@ static int atomic_refusals()
     const std::string ready=a+b;
     const std::string first=one_prefix(rectangle_a);
     const std::string second=one_prefix(rectangle_b);
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original(a+"q 2.125 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(a+"q 1 0 0 1 1 0 cm 1.125 2 m 13 2 l 7 10 l h W n 1 0 0 1 -1 0 cm "+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     for(int crop:{0,1,2,3})for(int dpi:{72,96,144}) {
         configuration cfg;cfg.crop=crop;cfg.dpi=dpi;rendered actual,reference;
         CHECK(render(original(a+"q 2 2 m 14 2 l 8 10 l h h W n "+full_blue+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
         CHECK(render(original(a+"q 2 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
     }
+    const auto ar=paint("1 0 0 rg",rectangle_a),bb=paint("0 0 1 rg",rectangle_b);
+    const auto ap=scope(rectangle_a,patterned);
+    const std::pair<std::string,std::string> admitted[]={
+        {first+"Q "+b,bb},
+        {a+second+"Q",ar},
+        {first+"Q "+second+"Q",""},
+        {one_prefix("")+"Q "+b,bb},
+        {ready+scope(outer_triangle,full_green),ar+bb+paint("0 1 0 rg",outer_triangle)},
+        {a+second+full_blue+outer_triangle+" W n "+full_green+"Q",
+         ar+bb+scope(rectangle_b,paint("0 1 0 rg",outer_triangle))},
+        {ready+scope(rectangle_a,full_red),ar+bb+ar},
+        {full_green+a+yellow_middle+b+cyan_suffix,full_green+ar+yellow_middle+bb+cyan_suffix},
+        {ready+green_prefix+yellow_middle+cyan_suffix,ar+bb+green_prefix+yellow_middle+cyan_suffix},
+        {red_image+scope(rectangle_a,red_image)+scope(rectangle_b,blue_image),full_red+ar+bb},
+        {scope(rectangle_a,red_image)+scope(rectangle_b,blue_image)+red_image,ar+bb+full_red},
+        {scope(rectangle_a,full_red+green_a_cell)+scope(rectangle_b,full_blue+blue_image),ar+green_a_cell+bb+bb},
+        {scope(rectangle_a,red_image+patterned)+scope(rectangle_b,blue_image+full_blue),ar+ap+bb+bb},
+        {a+second+"0 0 1 rg "+compound+" f Q",ar+scope(rectangle_b,paint("0 0 1 rg",outer_triangle))},
+        {a+"q 2 2 12 8 re 6 4 4 3 re W n "+full_blue+"Q",ar+paint("0 0 1 rg",outer_rectangle)},
+        {a+"q "+compound+" "+empty_point+" W n "+full_blue+"Q",ar+paint("0 0 1 rg",outer_triangle)},
+        {a+"q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_blue+"Q",ar+paint("0 0 1 rg",outer_triangle)}
+    };
+    for(const auto& pair:admitted)for(int dpi:{72,96,144}) {
+        configuration cfg;cfg.dpi=dpi;cfg.crop=dpi==72?0:(dpi==96?2:3);cfg.selected=dpi==144?2:0;
+        rendered actual,reference;
+        CHECK(render(original(pair.first,cfg,pair.first.find(" Do")!=std::string::npos),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original(pair.second,cfg,pair.second.find(" Do")!=std::string::npos),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
-        first+"Q "+b, /* first leaf never painted */
-        a+second+"Q", /* second leaf never painted */
-        first+"Q "+second+"Q",
-        one_prefix("")+"Q "+b, /* emptiness does not waive the used-state gate */
-        ready+scope(outer_triangle,full_green), /* third definition */
-        a+second+full_blue+outer_triangle+" W n "+full_green+"Q",
-        ready+scope(rectangle_a,full_red), /* identical third leaf still forbidden */
-        full_green+a+yellow_middle+b+cyan_suffix, /* five paint phases */
-        ready+green_prefix+yellow_middle+cyan_suffix, /* fifth late PATH */
-        red_image+scope(rectangle_a,red_image)+scope(rectangle_b,blue_image),
-        scope(rectangle_a,red_image)+scope(rectangle_b,blue_image)+red_image,
-        scope(rectangle_a,full_red+green_a_cell)+
-            scope(rectangle_b,full_blue+blue_image), /* late Image after 3PATH */
-        scope(rectangle_a,red_image+patterned)+
-            scope(rectangle_b,blue_image+full_blue), /* three Images + PATH */
-        a+second+"0 0 1 rg "+compound+" f Q", /* compound painted PATH */
-        a+"q 2 2 12 8 re 6 4 4 3 re W n "+full_blue+"Q", /* 10 commands */
-        a+"q "+compound+" "+empty_point+" W n "+full_blue+"Q",
-        a+"q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_blue+"Q",
-        a+"q 2.125 2 m 14 2 l 8 10 l h W n "+full_blue+"Q",
         a+"q 2 2 m 14 2 l 8 -1000001 l h W n "+full_blue+"Q",
         a+"q 2 2 m 2 8 8 8 12 c 12 2 l h W n "+full_blue+"Q",
         a+"q "+rectangle_b+" W "+full_blue+"Q",
@@ -611,7 +625,7 @@ static int atomic_refusals()
         a+"q "+rectangle_b+" W W* n "+full_blue+"Q",
         scope(rectangle_a,red_image)+second+
             "q 16 0 0 12 0 0 cm /Missing Do Q Q",
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" 2 g",
         ready+" Q",

@@ -73,7 +73,7 @@ static std::string original(const std::string& first,
         blank.replaceKey("/Parent",pages);
         blank.replaceKey("/Contents",pdf->newStream(""));
         auto text=pdf->makeIndirectObject(Obj::parse(page_dictionary));
-        text.replaceKey("/Contents",pdf->newStream("BT ET"));
+        text.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         parent=pdf->makeIndirectObject(Obj::parse("<< /Type /Pages >>"));
         parent.replaceKey("/Parent",pages);
         parent.replaceKey("/Kids",Obj::newArray({text,page}));
@@ -704,18 +704,18 @@ static int atomic_refusals()
     const std::string compound=two_contours(outer_triangle,inner_triangle);
     const std::string prefix=one_prefix(compound,true);
     const std::string ready=prefix+full_red+"Q";
+    for(int quarters:{4,5})for(int rotation:{0,90})for(int dpi:{72,96,144})for(int crop:{0,3}) {
+        configuration cfg;cfg.quarters=quarters;cfg.rotation=rotation;cfg.dpi=dpi;cfg.crop=crop;
+        rendered actual,reference;
+        CHECK(render(original("q "+outer_triangle+" 6.125 4 m 10 4 l 8 7 l h W n "+full_red+"Q",cfg),cfg,actual)==EXIT_SUCCESS);
+        CHECK(render(original("q "+outer_triangle+" 1 0 0 1 1 0 cm 5.125 4 m 9 4 l 7 7 l h W n 1 0 0 1 -1 0 cm "+full_red+"Q",cfg),cfg,reference)==EXIT_SUCCESS && equal(actual,reference));
+    }
     const std::vector<std::string> bad={
         "q "+outer_triangle+" W "+inner_triangle+" n "+full_red+"Q",
         "q "+compound+" W 1 n "+full_red+"Q",
-        "q "+outer_triangle+" 6.125 4 m 10 4 l 8 7 l h W n "+
-            full_red+"Q",
         "q "+outer_triangle+" 6 4 m 10 4 l 8 -1000001 l h W n "+
             full_red+"Q",
-        prefix+full_red+compound+" W n Q", /* unused second Clip */
-        prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",
-        ready+" "+one_prefix(compound)+full_red+"Q "+
-            one_prefix(compound,true)+full_red+"Q", /* third definition */
-        ready+" BT ET",
+        ready+" BT 1 Tr ET",
         ready+" 2 2 m 10 8 l S",
         ready+" Q",
         ready+" q"
@@ -729,6 +729,10 @@ static int atomic_refusals()
         CHECK(equal(actual,reference) && ink_and_white(actual));
     }
     const std::pair<std::string,std::string> admitted[]={
+        {prefix+full_red+compound+" W n Q",ready},
+        {prefix+full_red+compound+" W n "+full_blue+compound+" W n Q",prefix+full_red+full_blue+"Q"},
+        {ready+" "+one_prefix(compound)+full_red+"Q "+one_prefix(compound,true)+full_red+"Q",
+         ready+" 1 0 0 rg "+outer_triangle+" f "+one_prefix(compound,true)+full_red+"Q"},
         {"q "+outer_triangle+" 8 8 m h W n "+full_red+"Q",
          one_prefix(outer_triangle)+full_red+"Q"},
         {"q "+outer_triangle+" 8 8 m 10 8 l h W n "+full_red+"Q",

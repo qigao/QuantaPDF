@@ -106,9 +106,11 @@ static int clip_dag_acyclic(
             return 0;
     }
     clip = &registry->clips[id - 1u];
-    if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL)
+    if (clip->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL ||
+        (clip->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL && clip->member_count == 0u))
         return 1;
-    if (clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
+    if ((clip->kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
+         clip->kind != QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL) ||
         clip->members == NULL || clip->member_count == 0u)
         return 0;
     stack[depth] = id;
@@ -173,11 +175,17 @@ quantapdf_status quantapdf_validate_ir(
         VALUE(v->data != NULL && v->size != 0 && v->width != 0 && v->height != 0 &&
             (v->components == 1 || v->components == 3) &&
             v->format >= QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG &&
-            v->format <= QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW &&
+            v->format <= QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16 &&
             (v->has_alpha == 0 || v->has_alpha == 1) &&
             v->alpha_size <= SIZE_MAX - v->size &&
             (v->has_alpha ? v->alpha_data != NULL && v->alpha_size != 0 : v->alpha_size == 0),
             QUANTAPDF_VALIDATION_IMAGE, i);
+        if (v->mask_width != 0u || v->mask_height != 0u || v->mask_interpolate != 0 || v->mask_bits != 0u) {
+            size_t mask_pixels;
+            VALUE((v->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW ||
+                v->format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16) &&
+                quantapdf_image_alpha_layout(v, 0u, &mask_pixels), QUANTAPDF_VALIDATION_IMAGE, i);
+        }
     }
     for (i = 0; i < r->font_count; ++i)
         VALUE(r->fonts[i].data != NULL && r->fonts[i].size != 0, QUANTAPDF_VALIDATION_FONT, i);
@@ -186,7 +194,9 @@ quantapdf_status quantapdf_validate_ir(
         VALUE(isfinite(v->fill_alpha) && v->fill_alpha >= 0 && v->fill_alpha <= 1 &&
             isfinite(v->stroke_alpha) && v->stroke_alpha >= 0 && v->stroke_alpha <= 1 &&
             v->blend_mode >= QUANTAPDF_COMPOSER_BLEND_NORMAL &&
-            v->blend_mode <= QUANTAPDF_COMPOSER_BLEND_LIGHTEN,
+            v->blend_mode <= QUANTAPDF_COMPOSER_BLEND_LIGHTEN &&
+            v->text_knockout >= QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT &&
+            v->text_knockout <= QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED,
             QUANTAPDF_VALIDATION_GRAPHICS_STATE, i);
         REF(v->clip_id <= r->clip_count, QUANTAPDF_VALIDATION_GRAPHICS_STATE, i, v->clip_id);
         REF(v->soft_mask_id <= r->soft_mask_count, QUANTAPDF_VALIDATION_GRAPHICS_STATE, i, v->soft_mask_id);
@@ -200,26 +210,49 @@ quantapdf_status quantapdf_validate_ir(
     }
     for (i = 0; i < r->clip_count; ++i) {
         const quantapdf_composer_clip_state *v = &r->clips[i];
+        const int mask = v->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL;
+        const int luminosity = mask && v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+        VALUE(array_valid(v->transfer, v->transfer_count, sizeof(*v->transfer)) &&
+            ((v->transfer == NULL) == (v->transfer_count == 0u)) &&
+            ((v->transfer_data == NULL) == (v->transfer_data_bytes == 0u)) &&
+            (v->transfer_data_bytes == 0u || v->transfer != NULL), QUANTAPDF_VALIDATION_CLIP, i);
+        VALUE(mask ?
+            ((v->knockout == 0 || v->knockout == 1) &&
+             (v->member_opacities == NULL ||
+              array_valid(v->member_opacities, v->member_count, sizeof(*v->member_opacities)))) :
+            (v->knockout == 0 && v->member_opacities == NULL && v->transfer == NULL),
+            QUANTAPDF_VALIDATION_CLIP, i);
+        VALUE(luminosity ?
+            (v->backdrop_luminosity >= 0.0 && v->backdrop_luminosity <= 1.0 &&
+             array_valid(v->member_luminosities, v->member_count, sizeof(*v->member_luminosities))) :
+            (v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA &&
+             v->backdrop_luminosity == 0.0 && v->member_luminosities == NULL),
+            QUANTAPDF_VALIDATION_CLIP, i);
         if (v->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             VALUE(quantapdf_validation_path_valid(v->commands, v->command_count) &&
                 transform_valid(v->transform) && v->fill_rule >= QUANTAPDF_COMPOSER_FILL_NONZERO &&
                 v->fill_rule <= QUANTAPDF_COMPOSER_FILL_EVEN_ODD, QUANTAPDF_VALIDATION_CLIP, i);
         } else {
-            VALUE(v->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL &&
-                v->member_count != 0 && array_valid(v->members, v->member_count, sizeof(*v->members)),
+            VALUE((v->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL || mask) &&
+                (v->member_count != 0 || luminosity || (mask && v->transfer != NULL)) &&
+                array_valid(v->members, v->member_count, sizeof(*v->members)),
                 QUANTAPDF_VALIDATION_CLIP, i);
             for (j = 0; j < v->member_count; ++j) {
                 size_t id = v->members[j];
                 REF(required_id(id, r->clip_count), QUANTAPDF_VALIDATION_CLIP, i, id);
-                /* Members may be Clip Paths OR nested intersections; the
-                 * traversal gate below rejects cycles/unsupported graphs. */
+                if (v->member_opacities != NULL)
+                    VALUE(v->member_opacities[j] >= 0.0 && v->member_opacities[j] <= 1.0,
+                          QUANTAPDF_VALIDATION_CLIP, i);
+                if (luminosity)
+                    VALUE(v->member_luminosities[j] >= 0.0 && v->member_luminosities[j] <= 1.0,
+                          QUANTAPDF_VALIDATION_CLIP, i);
             }
         }
     }
     /* Validate every nested graph once as a possible root. Flat legacy
      * intersection resources continue to pass this same bounded gate. */
     for (i = 0; i < r->clip_count; ++i) {
-        if (r->clips[i].kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL) {
+        if (r->clips[i].kind != QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             size_t stack[8] = {0};
             size_t visits = 0u;
             /* A cyclic Clip reference is a reference violation. Preserve

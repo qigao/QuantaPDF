@@ -134,7 +134,7 @@ static int qp_image_bounds(
 }
 
 static quantapdf_status qp_native_device_ir_project(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image,int two_clip_optin,
     int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
@@ -438,7 +438,7 @@ static quantapdf_status qp_native_device_ir_project(
 }
 
 static quantapdf_status qp_native_device_ir_render(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image,int two_clip_optin,
     int clipped_paths_optin,int clip_states_optin,int compound_clips_optin,
@@ -471,7 +471,7 @@ static quantapdf_status qp_native_device_ir_render(
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -479,7 +479,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1(
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_two_clip(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -518,7 +518,7 @@ static int qp_device_compound_clip(const quantapdf_ir *source)
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -529,7 +529,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clipped_paths(
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -537,7 +537,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_clip_states(
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -547,7 +547,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_compound_clip_states(
 /* Only this entry interprets an initial GS0 run as paint before W.
  * Exact graph and GS capacities are validated before any projection. */
 quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -560,7 +560,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_unclipped_prefix(
 /* Sibling scopes own two independent leaves, never a fabricated root.
  * The earlier graph profiles retain their original storage contracts. */
 quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -572,7 +572,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_sibling_clips(
  * bounded stack, sampled only by the existing C11 V5->V1 raster.
  * The 1px source Stroke remains strictly 72 DPI. */
 quantapdf_status quantapdf_native_device_ir_render_v1_three_gs_original(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_ir_raster_image *out_image)
 {
@@ -581,7 +581,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_three_gs_original(
 }
 
 static quantapdf_status qp_native_device_dispatch(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_ir_raster_image *out,quantapdf_native_scoped_page_v5 *prepared)
@@ -621,7 +621,7 @@ static quantapdf_status qp_native_device_dispatch(
 }
 
 quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_ir_raster_image *out)
@@ -630,7 +630,7 @@ quantapdf_status quantapdf_native_device_ir_render_v1_accounted(
 }
 
 quantapdf_status quantapdf_native_device_ir_prepare_v1(
-    const quantapdf_ir *source,unsigned dpi,
+    const quantapdf_ir *source,float dpi,
     const quantapdf_ir_raster_scoped_mixed_v5_limits *limits,
     quantapdf_native_prepared_route_v1 route,quantapdf_native_work_ledger_v1 *ledger,
     quantapdf_native_scoped_page_v5 *out)

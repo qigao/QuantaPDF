@@ -169,7 +169,7 @@ static std::string original_pdf(const std::string& content,const scenario& sc,
             "<< /Type /Page /MediaBox [0 0 16 12] >>"));
         first.replaceKey("/Parent",root);
         second.replaceKey("/Parent",root);
-        second.replaceKey("/Contents",pdf->newStream("BT ET"));
+        second.replaceKey("/Contents",pdf->newStream("BT 1 Tr ET"));
         root.replaceKey("/Kids",Obj::newArray({first,second,selected}));
         root.replaceKey("/Count",Obj::newInteger(3));
     } else {
@@ -524,6 +524,7 @@ static bool atomic_rejection(const std::string& pdf,
           c_allocations==0u && c_faults==0u);
     return true;
 }
+#include "native_source_fill_equivalence.h"
 static bool source_failures(shape geometry)
 {
     const auto& sc=cases[8];
@@ -542,12 +543,13 @@ static bool source_failures(shape geometry)
      * empty intersection: ceil(11.25)*ceil(17.5)+ceil(3.75)^2=232. */
     budget=source_budget;budget.max_drawn_pixels=231u;
     CHECK(atomic_rejection(pdf,budget));
-    CHECK(atomic_rejection(original_pdf(content+"BT ET",sc,true),source_budget));
+    CHECK(atomic_rejection(original_pdf(content+"BT 1 Tr ET",sc,true),source_budget));
     CHECK(atomic_rejection(original_pdf(content+"/Unqualified gs",sc,true),source_budget));
-    CHECK(atomic_rejection(original_pdf(content+"q 2 2 8 7 re W n Q",sc,true),source_budget));
+    CHECK(source_pdf_equivalent(original_pdf(content+"q 2 2 8 7 re W n Q",sc,true),pdf));
     const scenario unused={"unused_intersection",{{paint::red_path,1u},{paint::magenta_path,1u}},
         0u,white,white,white,white,graph::clip_states};
-    CHECK(atomic_rejection(original_pdf(page_content(unused,geometry),unused,true),source_budget));
+    CHECK(source_pdf_equivalent(original_pdf(page_content(unused,geometry),unused,true),
+        original_pdf(page_content(unused,geometry,true),unused,true)));
     quantapdf_ir recovered{};
     CHECK(source(pdf,source_budget,recovered)==QUANTAPDF_OK && owned_graph(recovered,sc,geometry,true));
     quantapdf_ir_dispose(&recovered);

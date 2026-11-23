@@ -7,8 +7,8 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
 {
     size_t renders=0u,failures=0u;
     const auto run=[&](size_t repeats,unsigned primitive,unsigned clip,bool even,
-                       bool restore,bool encrypted,size_t zero_commands,unsigned layout=0u,unsigned closing=0u,bool winding_path=false)->int {
-        const auto sample=selection>=6u?native_path_commands::create_states(repeats,primitive,clip,even,restore,encrypted,zero_commands,layout):multi && !winding_path?native_path_commands::create_contours(repeats,primitive,clip,even,restore,encrypted,zero_commands,layout,closing,0,selection==3u):
+                       bool restore,bool encrypted,size_t zero_commands,unsigned layout=0u,unsigned closing=0u,bool winding_path=false,unsigned divisor=1u)->int {
+        const auto sample=selection>=11u?native_path_commands::create_contours(repeats,primitive,clip,even,restore,encrypted,zero_commands,layout,closing,0,selection==12u,false,divisor):selection==9u?native_path_commands::create_contours(repeats,primitive,clip,even,restore,encrypted,zero_commands,layout,closing,0,false,true):selection>=6u?native_path_commands::create_states(repeats,primitive,clip,even,restore,encrypted,zero_commands,layout,0,selection==10u):multi && !winding_path?native_path_commands::create_contours(repeats,primitive,clip,even,restore,encrypted,zero_commands,layout,closing,0,selection==3u):
             native_path_commands::create(repeats,primitive,clip,even,restore,encrypted,zero_commands,0,selection==3u);
         CHECK(write_pdf(filename,sample.bytes));quantapdf_context *context=nullptr;OK(quantapdf_context_create(&context));
         size_t finalized=0u;context->test_finalizations=&finalized;quantapdf_document *document=nullptr;
@@ -39,7 +39,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
             CHECK(input_matches(page->document));
             const auto error=quantapdf_render_page_with_options(page,&options,&held[slot]);
             if(error!=QUANTAPDF_OK) {
-                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d restore=%d zeros=%zu dpi=%u status=%d\n",repeats,primitive,clip,int(even),int(restore),zero_commands,dpi,int(error));
+                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d restore=%d zeros=%zu divisor=%u dpi=%u status=%d\n",repeats,primitive,clip,int(even),int(restore),zero_commands,divisor,dpi,int(error));
                 for(auto bitmap:held)quantapdf_drop_bitmap(bitmap);
                 quantapdf_drop_page(page);return EXIT_FAILURE;
             }
@@ -47,7 +47,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
             CHECK(w==int(12u*dpi/72u) && h==w && stride==w*3 && components==3);
             OK(quantapdf_bitmap_data(held[slot],&data,&size));const auto expected=native_path_commands::rgb(sample,dpi);
             if(size==expected.size() && std::memcmp(data,expected.data(),size)!=0)for(size_t i=0u;i<size;++i)if(data[i]!=expected[i]) {
-                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d layout=%u closing=%u encrypted=%d dpi=%u byte=%zu got=%u expected=%u\n",repeats,primitive,clip,int(even),layout,closing,int(encrypted),dpi,i,unsigned(data[i]),unsigned(expected[i]));break;
+                std::fprintf(stderr,"long path repeats=%zu primitive=%u clip=%u even=%d layout=%u closing=%u encrypted=%d divisor=%u dpi=%u byte=%zu got=%u expected=%u\n",repeats,primitive,clip,int(even),layout,closing,int(encrypted),divisor,dpi,i,unsigned(data[i]),unsigned(expected[i]));break;
             }
             if(size!=expected.size() || std::memcmp(data,expected.data(),size)!=0) {
                 CHECK(write_pdf(filename+".failed.pdf",sample.bytes));
@@ -67,7 +67,28 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
         }
         CHECK(finalized==1u);return EXIT_SUCCESS;
     };
-    if(selection>=6u) {
+    if(selection>=11u) {
+        for(unsigned divisor:{8u,10u})for(size_t count:{3u,65u})
+        for(unsigned primitive:{0u,1u,2u,3u})for(unsigned layout:{0u,3u})
+        for(unsigned clip=0u;clip<(selection==12u?1u:2u);++clip)
+        for(bool even:{false,true})for(bool encrypted:{false,true})
+            CHECK(run(count,primitive,clip,even,true,encrypted,0u,layout,1u,false,divisor)==EXIT_SUCCESS);
+        for(unsigned divisor:{8u,10u})for(bool encrypted:{false,true})
+            CHECK(run(3u,1u,0u,false,true,encrypted,8192u,0u,1u,false,divisor)==EXIT_SUCCESS);
+    } else if(selection==9u) {
+        for(size_t count:{2u,17u,65u})for(unsigned primitive:{0u,1u,2u,3u})
+        for(unsigned clip:{0u,1u,2u})for(bool even:{false,true})for(bool encrypted:{false,true})
+            CHECK(run(count,primitive,clip,even,true,encrypted,0u,0u,1u)==EXIT_SUCCESS);
+        for(bool encrypted:{false,true})
+            CHECK(run(3u,1u,1u,false,true,encrypted,8192u,0u,1u)==EXIT_SUCCESS);
+    } else if(selection==10u) {
+        for(unsigned kind:{0u,1u,2u,3u,4u,5u,6u,7u,8u,9u,10u,11u,13u})
+        for(unsigned primitive:{0u,2u})for(unsigned clip:{0u,1u,2u})
+        for(bool even:{false,true})for(bool encrypted:{false,true})
+            CHECK(run(1u,primitive,clip,even,true,encrypted,0u,kind)==EXIT_SUCCESS);
+        for(unsigned primitive:{1u,2u,3u})for(bool even:{false,true})for(bool encrypted:{false,true})
+            CHECK(run(1u,primitive,1u,even,true,encrypted,0u,12u)==EXIT_SUCCESS);
+    } else if(selection>=6u) {
         const unsigned first=4u*(selection-6u);
         for(unsigned kind=first;kind<first+4u;++kind)for(unsigned primitive:{0u,1u,2u,3u})
         for(unsigned clip:{0u,1u,2u})for(bool even:{false,true})for(bool encrypted:{false,true})
@@ -142,7 +163,7 @@ static int path_commands_cases(const std::string& filename,bool multi=false,unsi
         CHECK(run(3u,primitive,clip,false,true,encrypted,zeros)==EXIT_SUCCESS);
     }
     for(bool encrypted:{false,true})for(int invalid:{1,2,3,4,5}) {
-        const auto sample=selection>=6u?native_path_commands::create_states(invalid==5?129u:17u,0u,0u,false,false,encrypted,0u,4u,invalid):multi?native_path_commands::create_contours(invalid==5?129u:17u,0u,0u,false,false,encrypted,0u,0u,1u,invalid,selection==3u):
+        const auto sample=selection>=11u?native_path_commands::create_contours(invalid==5?129u:17u,0u,0u,false,false,encrypted,0u,0u,1u,invalid,selection==12u,false,8u):selection>=6u?native_path_commands::create_states(invalid==5?129u:17u,0u,0u,false,false,encrypted,0u,4u,invalid,selection>=9u):multi?native_path_commands::create_contours(invalid==5?129u:17u,0u,0u,false,false,encrypted,0u,0u,1u,invalid,selection==3u):
             native_path_commands::create(invalid==5?129u:17u,0u,0u,false,false,encrypted,0u,invalid);
         CHECK(write_pdf(filename,sample.bytes));quantapdf_document *document=nullptr;quantapdf_page *page=nullptr;
         OK(quantapdf_open(filename.c_str(),encrypted?"reader":nullptr,&document));CHECK(std::remove(filename.c_str())==0);

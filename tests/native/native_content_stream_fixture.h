@@ -86,7 +86,7 @@ inline original create(unsigned encoding,size_t count,bool encrypted=false,int i
             i==0u?prefix:i==1u?left:i==count-1u?right:std::string();
         if(count>3u)decoded=std::string(5000u,' ')+decoded;
         if(invalid==1 && i==count-1u)decoded+="Q\n";
-        if(invalid==2 && i==count-1u)decoded+="BT ET\n";
+        if(invalid==2 && i==count-1u)decoded+="BT 1 Tr ET\n";
         if(decoded.empty() || decoded.back()!='\n')decoded+='\n';
         result.decoded_bytes+=decoded.size();
         streams.push_back(stream(*pdf,decoded,(encoding+unsigned(i))%8u));

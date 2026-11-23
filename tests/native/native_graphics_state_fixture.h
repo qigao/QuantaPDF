@@ -1,6 +1,7 @@
 #ifndef QUANTAPDF_NATIVE_GRAPHICS_STATE_FIXTURE_H
 #define QUANTAPDF_NATIVE_GRAPHICS_STATE_FIXTURE_H
 #include "native_content_stream_fixture.h"
+#include "native_ttf_fixture.h"
 #include <array>
 
 namespace native_graphics_fixture {
@@ -82,6 +83,176 @@ inline original create(size_t depth,bool clipped,bool images,bool encrypted,
     result.bytes.assign(reinterpret_cast<const char*>(buffer->getBuffer()),buffer->getSize());
     return result;
 }
+inline constexpr const char *alpha_form =
+    "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
+    " /Group << /S /Transparency /I true >> >>";
+
+inline constexpr const char *alpha_knockout_form =
+    "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
+    " /Group << /S /Transparency /I true /K true >> >>";
+
+inline std::string luminosity_form(const char *space,bool knockout=false)
+{
+    return std::string("<< /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 .5 0] "
+        "/Group << /S /Transparency /CS ")+space+(knockout?" /K true":"")+" >> >>";
+}
+
+inline constexpr const char* stitched_luminosity_mask =
+    "<< /S /Luminosity /BC [.625] /TR << /FunctionType 3 /Domain [0 1] /Range [0 .875] "
+    "/Bounds [.5 .75] /Encode [0 1 1 0 .75 1.25] /Functions ["
+    "<< /FunctionType 2 /Domain [0 1] /Range [.125 .375] /C0 [-.5] /C1 [1.5] /N 1 >> "
+    "<< /FunctionType 3 /Domain [.25 .75] /Bounds [] /Encode [.25 .75] /Functions ["
+    "<< /FunctionType 2 /Domain [0 1] /N 2 >>] >> "
+    "<< /FunctionType 2 /Domain [0 2] /N 1 >>] >> >>";
+inline constexpr const char* stitched_luminosity_fills =
+    ".25 g .5 0 1 2.5 re f .5 g 1.5 0 1 2.5 re f "
+    "1 g 2.5 0 1 2.5 re f .75 g 3.5 0 1 2.5 re f";
+inline constexpr const char* stitched_alpha_mask =
+    "<< /S /Alpha /TR << /FunctionType 3 /Domain [0 1] /Bounds [1] "
+    "/Encode [0 1 .875 .125] /Functions ["
+    "<< /FunctionType 2 /Domain [0 1] /C0 [.25] /C1 [.25] /N 1 >> "
+    "<< /FunctionType 2 /Domain [0 1] /N 1 >>] >> >>";
+
+struct stream_transfer_fixture {
+    std::string dictionary;
+    std::string bytes;
+    int child=-1;
+};
+
+inline std::string pack_samples(unsigned bits,std::initializer_list<uint32_t> values)
+{
+    std::string bytes((values.size()*bits+7u)/8u,'\0');
+    size_t offset=0u;
+    for(uint32_t value:values)for(unsigned b=bits;b>0u;--b,++offset) {
+        const unsigned bit=(value>>(b-1u))&1u;
+        bytes[offset/8u]=static_cast<char>(static_cast<unsigned char>(bytes[offset/8u])|
+            (bit<<(7u-offset%8u)));
+    }
+    return bytes;
+}
+
+inline constexpr const char* sampled_stitch_mask =
+    "<< /S /Luminosity /BC [.625] /TR << /FunctionType 3 /Domain [0 1] "
+    "/Bounds [.5] /Encode [0 1 0 1] /Functions [null null] >> >>";
+inline constexpr const char* sampled_stitch_fills =
+    "0 g 0 0 .5 2.5 re f .25 g .5 0 .5 2.5 re f .28125 g 1 0 .5 2.5 re f .5 g 1.5 0 .5 2.5 re f "
+    ".5625 g 2 0 .5 2.5 re f .6875 g 2.5 0 .5 2.5 re f .8125 g 3 0 .5 2.5 re f .9375 g 3.5 0 .5 2.5 re f";
+
+inline std::vector<stream_transfer_fixture> sampled_stitch_tables()
+{
+    return {{"<< /FunctionType 0 /Domain [.25 .75] /Range [.125 .75] /Size [3] "
+             "/BitsPerSample 12 /Encode [3 -1] /Decode [1 0] >>",pack_samples(12u,{4095u,0u,4095u}),0},
+            {"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [4] "
+             "/BitsPerSample 1 /Order 3 /Encode [0 4] >>",pack_samples(1u,{0u,1u,0u,1u}),1}};
+}
+
+inline stream_transfer_fixture calculator_function(std::string program,int child=-1)
+{
+    return {"<< /FunctionType 4 /Domain [0 1] /Range [0 1] >>",std::move(program),child};
+}
+
+inline constexpr const char* calculator_piecewise =
+    "{ % square the lower interval\n dup .5 lt { dup mul } { neg 1 add } ifelse }\n";
+
+inline std::vector<stream_transfer_fixture> calculator_stitch_streams()
+{
+    return {calculator_function(calculator_piecewise,0),
+        {"<< /FunctionType 0 /Domain [0 1] /Range [0 1] /Size [2] /BitsPerSample 1 >>",
+         pack_samples(1u,{0u,1u}),1}};
+}
+
+inline constexpr const char* calculator_stitch_mask =
+    "<< /S /Luminosity /BC [.25] /TR << /FunctionType 3 /Domain [0 1] "
+    "/Bounds [.5] /Encode [0 1 1 0] /Functions [null null] >> >>";
+
+inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
+    const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>",
+    bool cyclic_transfer=false,const std::vector<stream_transfer_fixture>& streams={},
+    unsigned char image_opacity=255u,bool blend_images=false)
+{
+    auto pdf=QPDF::create();
+    const auto font_fixture=native_ttf_fixture();
+    pdf->processMemoryFile("alpha-group fixture",font_fixture.data(),font_fixture.size());
+    auto page=pdf->getAllPages().front();
+    page.replaceKey("/MediaBox",Object::parse("[0 0 12 4]"));
+    page.replaceKey("/Contents",pdf->newStream(page_content));
+    auto resources=page.getKey("/Resources");
+    auto form=pdf->newStream(mask_content);
+    auto form_dict=form.getDict(), entries=Object::parse(form_dictionary);
+    for(const auto& key:entries.getKeys())form_dict.replaceKey(key,entries.getKey(key));
+    auto mask=Object::parse(soft_mask);
+    for(const auto& fixture:streams) {
+        auto stream=pdf->newStream(fixture.bytes);
+        auto dict=stream.getDict(),keys=Object::parse(fixture.dictionary);
+        for(const auto& key:keys.getKeys())dict.replaceKey(key,keys.getKey(key));
+        if(fixture.child<0)mask.replaceKey("/TR",stream);
+        else mask.getKey("/TR").getKey("/Functions").setArrayItem(fixture.child,stream);
+    }
+    if(cyclic_transfer) {
+        auto transfer=pdf->makeIndirectObject(mask.getKey("/TR"));
+        transfer.getKey("/Functions").setArrayItem(0,transfer);
+        mask.replaceKey("/TR",transfer);
+    }
+    mask.replaceKey("/G",form);
+    auto states=Object::parse("<< /Alpha <<>> /Inert << /ca 1 >> /Clear << /SMask /None >> "
+        "/Half << /ca .5 >> /Quarter << /ca .25 >> /Zero << /ca 0 >> "
+        "/StrokeOnly << /CA 1 >> /Precise << /ca .123456789 >> /Bad << /ca 1.1 >> "
+        "/Multiply << /BM /Multiply >> /Screen << /BM /Screen >> /Overlay << /BM /Overlay >> "
+        "/Darken << /BM /Darken >> /Lighten << /BM /Lighten >> /Reset << /BM /Normal >> "
+        "/ColorBurn << /BM /ColorBurn >> "
+        "/Separate << /TK false >> /Knockout << /TK true >> /BadTK << /TK 0 >> >>");
+    states.getKey("/Alpha").replaceKey("/SMask",mask);
+    resources.replaceKey("/ExtGState",states);
+    auto color=Object::parse(
+        "<< /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceRGB >>");
+    auto image=pdf->newStream(std::string("\xff\xff\0",3u));
+    auto masked_image=pdf->newStream(std::string("\xff\xff\0",3u));
+    for(const auto& key:color.getKeys()) {
+        image.getDict().replaceKey(key,color.getKey(key));
+        masked_image.getDict().replaceKey(key,color.getKey(key));
+    }
+    auto opacity=pdf->newStream(std::string(1u,static_cast<char>(image_opacity)));
+    auto gray=Object::parse(
+        "<< /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceGray >>");
+    for(const auto& key:gray.getKeys())opacity.getDict().replaceKey(key,gray.getKey(key));
+    masked_image.getDict().replaceKey("/SMask",opacity);
+    auto objects=Object::newDictionary();
+    objects.replaceKey("/Plain",image);
+    objects.replaceKey("/Own",masked_image);
+    if(blend_images) {
+        color.replaceKey("/Width",Object::newInteger(2));
+        color.replaceKey("/Interpolate",Object::newBool(true));
+        const std::string rgb("\xcc\x66\x33\x33\xcc\x66",6u);
+        auto interpolated=pdf->newStream(rgb);
+        auto keyed=pdf->newStream(rgb);
+        auto wide=pdf->newStream(std::string(
+            "\xcc\xcd\x66\x66\x33\x33\x33\x33\xcc\xcc\x66\x66",12u));
+        for(const auto& key:color.getKeys()) {
+            interpolated.getDict().replaceKey(key,color.getKey(key));
+            keyed.getDict().replaceKey(key,color.getKey(key));
+            wide.getDict().replaceKey(key,color.getKey(key));
+        }
+        keyed.getDict().replaceKey("/Mask",Object::parse("[204 204 102 102 51 51]"));
+        auto ramp=pdf->newStream(std::string("\0\xff",2u));
+        gray.replaceKey("/Width",Object::newInteger(2));
+        gray.replaceKey("/Interpolate",Object::newBool(true));
+        for(const auto& key:gray.getKeys())ramp.getDict().replaceKey(key,gray.getKey(key));
+        wide.getDict().replaceKey("/BitsPerComponent",Object::newInteger(16));
+        wide.getDict().replaceKey("/SMask",ramp);
+        objects.replaceKey("/Interpolated",interpolated);
+        objects.replaceKey("/Keyed",keyed);
+        objects.replaceKey("/WideMask",wide);
+    }
+    resources.replaceKey("/XObject",objects);
+    QPDFWriter writer(*pdf);
+    writer.setMinimumPDFVersion(blend_images?"1.5":"1.4");
+    writer.setOutputMemory();
+    writer.write();
+    const auto buffer=writer.getBufferSharedPointer();
+    return {std::string(reinterpret_cast<const char*>(buffer->getBuffer()),buffer->getSize()),
+            page_content.size()+mask_content.size()};
+}
+
 // Independent source rectangle/Clip sample intersections and integer opaque
 // source-over. All coordinates are exact integers/rational 4x4 sample centers.
 inline std::vector<unsigned char> rgb(unsigned dpi,bool clipped,bool images)

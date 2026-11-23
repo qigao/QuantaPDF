@@ -27,20 +27,35 @@ quantapdf_status quantapdf_png_decode(
     uint32_t *out_width,
     uint32_t *out_height);
 
-quantapdf_status quantapdf_jpeg_validate(
-    const unsigned char *data,
-    size_t size,
-    size_t max_working_bytes,
-    uint32_t *out_width,
-    uint32_t *out_height,
-    int *out_components);
+#define QUANTAPDF_JPEG_MAX_SCAN_BLOCKS ((size_t)16u * 1024u * 1024u)
 
-/* Detached malloc-owned Gray/RGB samples. PDF DCT ColorTransform is -1
- * (JPEG metadata), 0 (no transform), or 1 (YCbCr -> RGB). */
+typedef struct quantapdf_jpeg_limits {
+    size_t max_working_bytes; /* Encoded bytes, output samples and coefficient arrays. */
+    size_t max_scan_blocks;   /* Total MCU data units visited by a multi-scan decode. */
+} quantapdf_jpeg_limits;
+
+typedef struct quantapdf_jpeg_layout {
+    uint32_t width, height;
+    int components;
+} quantapdf_jpeg_layout;
+
+typedef struct quantapdf_jpeg_info {
+    quantapdf_jpeg_layout layout;
+    int color_transform;
+} quantapdf_jpeg_info;
+
+/* The resolved transform describes the encoded samples, for PDF embedding. */
+quantapdf_status quantapdf_jpeg_validate(
+    const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,
+    quantapdf_jpeg_info *out_info);
+
+/* Decode a PDF image into a private width*height*components byte buffer.
+ * The JPEG header must match layout before scanline decoding starts.
+ * ColorTransform is -1 (PDF default), 0 (none), or 1 (YCbCr or YCCK).
+ * An Adobe APP14 marker takes precedence. Discard the buffer on failure. */
 quantapdf_status quantapdf_jpeg_decode(
-    const unsigned char *data, size_t size, size_t max_working_bytes,
-    int color_transform, unsigned char **out_pixels,
-    uint32_t *out_width, uint32_t *out_height, int *out_components);
+    const unsigned char *data, size_t size, quantapdf_jpeg_limits limits,
+    int color_transform, quantapdf_jpeg_layout layout, unsigned char *pixels);
 
 #if defined(QUANTAPDF_TESTING)
 #if defined(__GNUC__)

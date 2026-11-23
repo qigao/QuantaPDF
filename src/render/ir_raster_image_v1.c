@@ -33,7 +33,7 @@ static quantapdf_status qp_admit_image(
     size_t *used_source_pixels)
 {
     size_t pixels, bytes;
-    if (image->format != QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW ||
+    if (image->format != QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW || image->mask_width != 0u ||
         image->width == 0u || image->height == 0u ||
         (image->components != 1 && image->components != 3) ||
         (image->has_alpha != 0 && image->has_alpha != 1) ||

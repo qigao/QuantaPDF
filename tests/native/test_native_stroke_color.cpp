@@ -207,7 +207,7 @@ static int negative()
         "1 0 0 rg 4 4 8 6 re f 0 0 0 2 K",
         "q 12 6 8 9 re W 0 G n Q",
         "0 G 4 4 8 6 re S",
-        "0 0 0 RG BT ET",
+        "0 0 0 RG BT 1 Tr ET",
         "0 0 0 1 K 0 1 1 0 k 4 4 8 6 re f",
         "0 G 0 0 0 1 K /Missing Do",
         "q 16 0 0 12 8 3 cm /I Do Q 2 G",

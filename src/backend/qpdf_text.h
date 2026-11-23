@@ -7,48 +7,54 @@
 #include <qpdf/QPDFObjectHandle.hh>
 #include <array>
 #include <memory>
+#include <string>
 #include <vector>
 namespace quantapdf::detail {
 struct source_outline_glyph { std::vector<quantapdf_composer_path_command> commands; };
 struct source_outline_paint {
     std::vector<source_outline_glyph> glyphs; uint32_t argb;
-    std::vector<quantapdf_composer_path_command> rectangle={};
-    quantapdf_composer_fill_rule rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
+    bool merge_glyph_coverage;
 };
-bool source_outline_is_rectangle(const std::vector<quantapdf_composer_path_command>&);
+inline std::array<double,3> source_rgb_channels(uint32_t argb)
+{
+    return {static_cast<double>((argb>>16u)&255u)/255,
+            static_cast<double>((argb>>8u)&255u)/255,
+            static_cast<double>(argb&255u)/255};
+}
 struct source_text_seed {
     std::array<double,6> ctm;
     uint32_t argb;
-    /* PRIVATE Source W/W* identity at the original BT handoff; never
-     * observed by ordinary extraction, which defaults to GS0. */
-    unsigned char clip_id=0u;
+    /* Frozen Clip and alpha-group coverage at the original BT handoff.
+     * Ordinary extraction leaves both identities zero. */
+    quantapdf_composer_clip_id clip_id=0u,mask_clip_id=0u;
+    double opacity=1.0;
+    quantapdf_composer_blend_mode blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+    bool text_knockout=true;
 };
 /* Page-scene callbacks on the original qpdf token stream. Fonts and
  * contours use the existing interpreter; qpdf/font owners do not escape. */
 struct source_mixed_callbacks {
     void *user=nullptr;
-    quantapdf_status (*on_text)(void*)=nullptr;
+    quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id,quantapdf_composer_clip_id,
+        double,quantapdf_composer_blend_mode)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
-                                 const std::array<double,6>&)=nullptr;
-    /* Original post-BT opaque solid Fill: the SAME reader freezes the
-     * PATH paint alongside Text shows, rather than ignoring its order.
-     * Existing Text-only paints do not need a new IR materializer. */
-    quantapdf_status (*on_fill)(void*)=nullptr;
-    /* PRIVATE M2b.2e: q/Q in the SAME original token interpreter,
-     * with actual saved/restored Clip identity (not a later page flag).
-     * is_save=1 for q, 0 for Q. Extraction has no Source Clip observer. */
-    quantapdf_status (*on_scope)(void*,int is_save,
-                                  unsigned char before,
-                                  unsigned char after)=nullptr;
-    /* PRIVATE post-BT W/W* completion at n. The existing owner validates
-     * the whole scope and returns the new frozen identity. */
-    quantapdf_status (*on_clip)(void*,
-        const std::vector<quantapdf_composer_path_command>&,
-        quantapdf_composer_fill_rule,const std::array<double,6>&,
-        unsigned char before,unsigned char *after)=nullptr;
+        const std::array<double,6>&,const std::array<double,3>&,
+        quantapdf_composer_clip_id,quantapdf_composer_clip_id,double,quantapdf_composer_blend_mode)=nullptr;
+    quantapdf_status (*on_gs)(void*,QPDFObjectHandle,const std::array<double,6>&,
+        quantapdf_composer_clip_id*,double*,quantapdf_composer_blend_mode*,bool*)=nullptr;
+    /* Ordinary page paths retain one owner across BT. Operands are passed
+     * directly once; the page reader freezes the supplied current state and
+     * checks that BT does not enter an unfinished path object. */
+    quantapdf_status (*on_path)(void*,const std::string&,
+        const std::vector<QPDFObjectHandle>&,source_text_seed,
+        quantapdf_composer_clip_id *after)=nullptr;
 };
 /* Reuses the existing observation interpreter on the SAME token callback
  * stream. It never parses/reopens source bytes or returns font/QPDF owners.
+ * Glyph contours alone subtract the original visible viewport origin;
+ * graphics-state CTMs passed to path/image callbacks stay in PDF space.
+ * swap_axes selects the future page Y axis for monotone quadratic pieces;
+ * the page owner applies Rotate/UserUnit to every staged paint together.
  * The caller supplies an empty owner; construction failures preserve their
  * status and leave it empty, just like consume/finish. */
 class source_text_outlines {
@@ -59,9 +65,9 @@ public:
     virtual const std::vector<source_outline_paint>& paints() const=0;
 };
 quantapdf_status make_source_text_outlines(
-    QPDFObjectHandle resources,double page_height,source_text_seed initial,
+    QPDFObjectHandle resources,double viewport_left,double viewport_bottom,
+    double page_height,bool swap_axes,source_text_seed initial,
     const std::vector<source_text_seed>& saved,
-    const std::vector<source_outline_paint>& prefix,
     source_mixed_callbacks callbacks,std::unique_ptr<source_text_outlines>& out);
 }
 

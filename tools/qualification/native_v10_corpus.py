@@ -126,7 +126,8 @@ def specimens() -> dict[str, tuple[bytes, str, str | None, list[str]]]:
                                             image_object(bytes([0, 0, 255]))),
                                "OK", "0000ff", ["image", "clip-w", "blue"]),
         "blank-page": (original_pdf(b""), "OK", "ffffff", ["blank", "white"]),
-        "reject-late-text": (original_pdf(RED_PATH + b"BT ET "),
+        # Empty BT/ET is legal; late unsupported text rendering still fails.
+        "reject-late-text": (original_pdf(RED_PATH + b"BT 1 Tr ET "),
                              "UNSUPPORTED", None, ["path", "text", "late-rejection"]),
         "reject-missing-name": (original_pdf(
             b"q 16 0 0 12 0 0 cm /Missing Do Q ", RESOURCE_IMAGE,
@@ -139,12 +140,12 @@ def specimens() -> dict[str, tuple[bytes, str, str | None, list[str]]]:
                                             image_object(bytes([255, 0, 0]))),
                                "UNSUPPORTED", None, ["default-rgb", "atomic"]),
         "reject-image-late-text": (original_pdf(
-            DRAW + b"BT ET ", RESOURCE_IMAGE,
+            DRAW + b"BT 1 Tr ET ", RESOURCE_IMAGE,
             image_object(bytes([0, 255, 0]))),
                                    "UNSUPPORTED", None, ["image", "late-text", "atomic"]),
         "reject-cmyk-image": (original_pdf(
             DRAW, RESOURCE_IMAGE, image_object(bytes([0, 0, 0, 0]), "/DeviceCMYK")),
-                                "UNSUPPORTED", None, ["image", "cmyk", "atomic"]),
+                             "OK", "ffffff", ["image", "cmyk", "white"]),
     }
 
 
@@ -307,13 +308,13 @@ def negative_self_tests(docs: list[dict]) -> None:
     perms = [ids, order_shuffle(ids, SEEDS[0]), order_shuffle(ids, SEEDS[1])]
     rows = [
         {"name": name, "seed": seed, "fingerprint_fnv64": order_fingerprint(perm, ids),
-         "order": perm, "executions": len(ids)*3, "positive": 18, "refusals": 18}
+         "order": perm, "executions": len(ids)*3, "positive": 21, "refusals": 15}
         for name, seed, perm in zip(names, seeds, perms)
     ]
     report = {
         "schema_version": 1, "corpus_id": CORPUS_ID, "fixture_kind": KIND,
         "result": "passed", "document_count": len(docs), "dpi": [72, 96, 144],
-        "execution_count": 108, "positive_count": 54, "refusal_count": 54,
+        "execution_count": 108, "positive_count": 63, "refusal_count": 45,
         "pass_results": rows,
         "documents": [{"id": d["id"], "observed_status": d["expected_status"],
                        "executions": 9, "pixel_checks": (9 if d["expected_status"] == "OK" else 0),
@@ -326,7 +327,7 @@ def negative_self_tests(docs: list[dict]) -> None:
         lambda r: r["pass_results"][2].update(seed="0x00000001"),
         lambda r: r["documents"][3].update(executions=8),
         lambda r: r["pass_results"][0].update(fingerprint_fnv64="0"*16),
-        lambda r: r.update(positive_count=53),
+        lambda r: r.update(positive_count=62),
         lambda r: r["documents"].pop(),
         lambda r: r["pass_results"].pop(),
     )
@@ -383,7 +384,7 @@ def main() -> int:
               f"for {len(manifest['documents'])} generated originals")
     else:
         print("[native-v10-cross-document] PASS exact 108 executions "
-              "(54 positive, 54 atomic negative), three seeds/slots, "
+              "(63 positive, 45 atomic negative), three seeds/slots, "
               "cross-document identity and corruption refusals")
     return 0
 

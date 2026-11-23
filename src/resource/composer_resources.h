@@ -6,7 +6,8 @@
 typedef enum quantapdf_composer_image_format_internal {
     QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG = 1,
     QUANTAPDF_COMPOSER_IMAGE_FORMAT_PNG = 2,
-    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW = 3
+    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW = 3,
+    QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16 = 4 /* Big-endian unsigned samples. */
 } quantapdf_composer_image_format_internal;
 
 typedef struct quantapdf_composer_image_state {
@@ -19,7 +20,33 @@ typedef struct quantapdf_composer_image_state {
     int components;
     int has_alpha;
     quantapdf_composer_image_format_internal format;
+    int jpeg_color_transform; /* PDF DCT ColorTransform for three-component JPEGs. */
+    int interpolate;
+    uint32_t mask_width; /* Independent image mask grid, zero for associated alpha. */
+    uint32_t mask_height;
+    int mask_interpolate;
+    unsigned mask_bits; /* Stencil expanded to bytes, RAW8, or big-endian RAW16. */
 } quantapdf_composer_image_state;
+
+static inline int quantapdf_image_alpha_layout(const quantapdf_composer_image_state *image,
+                                               size_t image_pixels, size_t *mask_pixels)
+{
+    *mask_pixels = 0u;
+    if (image->mask_width != 0u) {
+        if (image->mask_height == 0u || image->mask_width > SIZE_MAX / image->mask_height ||
+            (image->mask_interpolate != 0 && image->mask_interpolate != 1) ||
+            (image->mask_bits != 1u && image->mask_bits != 8u && image->mask_bits != 16u))
+            return 0;
+        *mask_pixels = (size_t)image->mask_width * image->mask_height;
+        const size_t stride = image->mask_bits == 16u ? 2u : 1u;
+        return *mask_pixels <= SIZE_MAX / stride && image->has_alpha == 1 &&
+            image->alpha_data != NULL && image->alpha_size == *mask_pixels * stride;
+    }
+    if (image->mask_height != 0u || image->mask_interpolate != 0 || image->mask_bits != 0u)
+        return 0;
+    return image->has_alpha == 1 ? image->alpha_data != NULL && image->alpha_size == image_pixels :
+        image->has_alpha == 0 && image->alpha_data == NULL && image->alpha_size == 0u;
+}
 
 typedef struct quantapdf_composer_font_state {
     unsigned char *data;
@@ -27,11 +54,12 @@ typedef struct quantapdf_composer_font_state {
 } quantapdf_composer_font_state;
 
 typedef struct quantapdf_composer_graphics_state {
-    float fill_alpha;
+    double fill_alpha;
     float stroke_alpha;
     quantapdf_composer_blend_mode blend_mode;
     quantapdf_composer_clip_id clip_id;
     quantapdf_composer_soft_mask_id soft_mask_id;
+    quantapdf_composer_text_knockout text_knockout;
 } quantapdf_composer_graphics_state;
 
 typedef struct quantapdf_composer_soft_mask_state {
@@ -42,8 +70,26 @@ typedef struct quantapdf_composer_soft_mask_state {
 
 typedef enum quantapdf_composer_clip_kind_internal {
     QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL = 1,
-    QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL = 2
+    QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL = 2,
+    QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL = 3
 } quantapdf_composer_clip_kind_internal;
+
+typedef struct quantapdf_mask_transfer {
+    double domain[2];
+    double range[2];
+    double c0, c1, exponent;
+    int has_range;
+    /* Preorder nodes. Children of a Type 3 node start at its next slot.
+     * "end" is the index just past the subtree, including for a leaf. */
+    size_t end;
+    double upper_bound;
+    double encode[2];
+    size_t sample_offset, sample_count;
+    unsigned sample_bits, sample_order;
+    double sample_encode[2], sample_decode[2];
+    size_t program_offset, program_size;
+    size_t instruction_offset, instruction_count;
+} quantapdf_mask_transfer;
 
 typedef struct quantapdf_composer_clip_state {
     quantapdf_composer_clip_kind_internal kind;
@@ -53,6 +99,15 @@ typedef struct quantapdf_composer_clip_state {
     quantapdf_affine_transform transform;
     quantapdf_composer_clip_id *members;
     size_t member_count;
+    double *member_opacities; /* Absent when every mask group member is opaque. */
+    double *member_luminosities; /* One projected DeviceGray value per luminosity fill. */
+    double backdrop_luminosity;
+    quantapdf_composer_soft_mask_mode mask_mode;
+    quantapdf_mask_transfer *transfer; /* Absent for /Identity. */
+    size_t transfer_count;
+    unsigned char *transfer_data;
+    size_t transfer_data_bytes;
+    int knockout;
 } quantapdf_composer_clip_state;
 
 typedef enum quantapdf_composer_paint_kind_internal {

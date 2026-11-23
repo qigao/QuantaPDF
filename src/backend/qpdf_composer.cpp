@@ -2,6 +2,7 @@
 #include "qpdf_composer.h"
 
 #include "ir/ir.h"
+#include "resource/composer_blend_names.h"
 #include "composer_text_layout.h"
 #include "ttf_font.h"
 
@@ -112,21 +113,18 @@ double canonical_zero(double value)
 char const* blend_mode_name(
     quantapdf_composer_blend_mode blend_mode)
 {
-    switch (blend_mode) {
-    case QUANTAPDF_COMPOSER_BLEND_NORMAL:
-        return "/Normal";
-    case QUANTAPDF_COMPOSER_BLEND_MULTIPLY:
-        return "/Multiply";
-    case QUANTAPDF_COMPOSER_BLEND_SCREEN:
-        return "/Screen";
-    case QUANTAPDF_COMPOSER_BLEND_OVERLAY:
-        return "/Overlay";
-    case QUANTAPDF_COMPOSER_BLEND_DARKEN:
-        return "/Darken";
-    case QUANTAPDF_COMPOSER_BLEND_LIGHTEN:
-        return "/Lighten";
-    }
+    for (const auto& entry : quantapdf_pdf_blend_names)
+        if (entry.mode == blend_mode) return entry.name;
     throw std::logic_error("invalid Composer blend mode");
+}
+
+QPDFObjectHandle precise_pdf_number(double value)
+{
+    // PDF numbers have no exponent syntax. Preserve the source double in fixed form.
+    const double magnitude = std::abs(value);
+    const int precision = magnitude == 0.0 ? 0 : std::max(0, std::numeric_limits<double>::max_digits10 +
+        static_cast<int>(std::ceil(-std::log10(magnitude))));
+    return QPDFObjectHandle::newReal(value, precision);
 }
 
 QPDFObjectHandle make_graphics_state(
@@ -138,8 +136,7 @@ QPDFObjectHandle make_graphics_state(
         "/Type", QPDFObjectHandle::newName("/ExtGState"));
     dictionary.replaceKey(
         "/ca",
-        QPDFObjectHandle::newReal(
-            state.fill_alpha, decimal_precision(state.fill_alpha)));
+        precise_pdf_number(state.fill_alpha));
     dictionary.replaceKey(
         "/CA",
         QPDFObjectHandle::newReal(
@@ -147,6 +144,9 @@ QPDFObjectHandle make_graphics_state(
     dictionary.replaceKey(
         "/BM",
         QPDFObjectHandle::newName(blend_mode_name(state.blend_mode)));
+    if (state.text_knockout != QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT)
+        dictionary.replaceKey("/TK", QPDFObjectHandle::newBool(
+            state.text_knockout == QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_ENABLED));
     return pdf.makeIndirectObject(dictionary);
 }
 
@@ -1213,6 +1213,12 @@ void append_image_content(
         draw_top += (box_height - draw_height) / 2.0;
     }
     content += "q ";
+    auto const& t=operation.value.image.transform;
+    if(t.a!=0.0 || t.b!=0.0 || t.c!=0.0 || t.d!=0.0 || t.e!=0.0 || t.f!=0.0) {
+        content+=number(t.a)+" "+number(-t.b)+" "+number(-t.c)+" "+number(t.d)+" "+
+            number(t.c*page.height_points+t.e)+" "+
+            number(page.height_points*(1.0-t.d)-t.f)+" cm ";
+    }
     if (clip) {
         content += number(operation.bounds.x0) + " " +
             number(page.height_points - operation.bounds.y1) + " " +
@@ -1247,9 +1253,10 @@ void append_path_content(
     content += "q ";
     auto const& transform = options.transform;
     bool const identity_transform =
-        transform.a == 1.0f && transform.b == 0.0f &&
-         transform.c == 0.0f && transform.d == 1.0f &&
-         transform.e == 0.0f && transform.f == 0.0f;
+        transform.b == 0.0f && transform.c == 0.0f &&
+        transform.e == 0.0f && transform.f == 0.0f &&
+        ((transform.a == 1.0f && transform.d == 1.0f) ||
+         (transform.a == 0.0f && transform.d == 0.0f));
     if (!identity_transform) {
         double const a = canonical_zero(transform.a);
         double const b =
@@ -1380,22 +1387,17 @@ void append_form_content(
         operation.value.form.transform);
 }
 
-QPDFObjectHandle make_soft_mask_group(
+QPDFObjectHandle make_transparency_group(
     QPDF& pdf,
-    QPDFObjectHandle source_form,
-    quantapdf_composer_form_state const& form,
-    quantapdf_composer_soft_mask_state const& mask,
-    quantapdf_composer_page_state const& page)
+    std::string const& content,
+    QPDFObjectHandle resources,
+    quantapdf_composer_page_state const& page,
+    bool knockout = false,
+    const char* color_space = "/DeviceRGB")
 {
-    auto stream = pdf.newStream(form_placement_content(
-        "/MaskSource",
-        form.height_points,
-        page.height_points,
-        mask.transform));
+    auto stream = pdf.newStream(content);
     auto dictionary = stream.getDict();
     auto bbox = QPDFObjectHandle::newArray();
-    auto resources = QPDFObjectHandle::newDictionary();
-    auto xobjects = QPDFObjectHandle::newDictionary();
     auto group = QPDFObjectHandle::newDictionary();
 
     dictionary.replaceKey("/Type", QPDFObjectHandle::newName("/XObject"));
@@ -1410,16 +1412,31 @@ QPDFObjectHandle make_soft_mask_group(
         page.height_points, decimal_precision(page.height_points)));
     dictionary.replaceKey("/BBox", bbox);
 
-    xobjects.replaceKey("/MaskSource", source_form);
-    resources.replaceKey("/XObject", xobjects);
     dictionary.replaceKey("/Resources", resources);
 
     group.replaceKey("/S", QPDFObjectHandle::newName("/Transparency"));
-    group.replaceKey("/CS", QPDFObjectHandle::newName("/DeviceRGB"));
+    group.replaceKey("/CS", QPDFObjectHandle::newName(color_space));
     group.replaceKey("/I", QPDFObjectHandle::newBool(true));
-    group.replaceKey("/K", QPDFObjectHandle::newBool(false));
+    group.replaceKey("/K", QPDFObjectHandle::newBool(knockout));
     dictionary.replaceKey("/Group", group);
     return stream;
+}
+
+
+QPDFObjectHandle make_soft_mask_group(
+    QPDF& pdf,
+    QPDFObjectHandle source_form,
+    quantapdf_composer_form_state const& form,
+    quantapdf_composer_soft_mask_state const& mask,
+    quantapdf_composer_page_state const& page)
+{
+    auto resources = QPDFObjectHandle::newDictionary();
+    auto xobjects = QPDFObjectHandle::newDictionary();
+    xobjects.replaceKey("/MaskSource", source_form);
+    resources.replaceKey("/XObject", xobjects);
+    return make_transparency_group(pdf,
+        form_placement_content("/MaskSource", form.height_points, page.height_points, mask.transform),
+        resources, page);
 }
 
 
@@ -1655,45 +1672,146 @@ void append_path_clip_content(
 }
 
 void append_clip_content_bounded(
-    std::string& content,
+    std::string* content,
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip,
+    quantapdf_composer_clip_state const*& mask_group,
     std::size_t depth,
     std::size_t& visits)
 {
-    /* A valid Clip intersection DAG is a conjunction of path clips.
-     * Emitting the leaves in DFS order preserves its semantics in PDF:
-     * each W/W* narrows the current graphics-state Clip. No flattened
-     * unbounded temporary paths or fallback providers are needed. */
     if (depth >= 8u || visits >= 1024u)
         throw std::logic_error("clip graph traversal budget exceeded");
     ++visits;
     if (clip.kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
-        append_path_clip_content(content, page, clip);
+        if (content != nullptr)
+            append_path_clip_content(*content, page, clip);
+        return;
+    }
+    if (clip.kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL) {
+        if (mask_group != nullptr && mask_group != &clip)
+            throw std::logic_error("multiple mask groups on one graphics state");
+        mask_group = &clip;
         return;
     }
     if (clip.kind != QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL)
         throw std::logic_error("unknown clip resource kind");
 
+    // All leaves outside the mask group are ordinary successive W/W* clips.
     for (size_t i = 0u; i < clip.member_count; ++i) {
         auto const id = clip.members[i];
         if (id == 0u || id > ir->resources.clip_count)
             throw std::logic_error("compound clip member missing");
         auto const& member = ir->resources.clips[id - 1u];
         append_clip_content_bounded(
-            content, ir, page, member, depth + 1u, visits);
+            content, ir, page, member, mask_group, depth + 1u, visits);
     }
 }
 
-void append_clip_content(
-    std::string& content,
+quantapdf_composer_clip_state const* append_clip_content(
+    std::string* content,
     quantapdf_ir const* ir,
     quantapdf_composer_page_state const& page,
     quantapdf_composer_clip_state const& clip)
 {
     std::size_t visits = 0u;
-    append_clip_content_bounded(content, ir, page, clip, 0u, visits);
+    quantapdf_composer_clip_state const* mask_group = nullptr;
+    append_clip_content_bounded(content, ir, page, clip, mask_group, 0u, visits);
+    return mask_group;
+}
+
+QPDFObjectHandle make_mask_transfer(
+    QPDF& pdf, const quantapdf_mask_transfer* nodes, const unsigned char* data, std::size_t index)
+{
+    const auto& transfer = nodes[index];
+    const bool sampled = transfer.sample_count != 0u;
+    const bool calculator = transfer.program_size != 0u;
+    const bool stitched = transfer.end != index + 1u;
+    QPDFObjectHandle stream;
+    auto function = QPDFObjectHandle::newDictionary();
+    if (sampled || calculator) {
+        const std::size_t size = sampled
+            ? (transfer.sample_count * transfer.sample_bits + 7u) / 8u : transfer.program_size;
+        const std::size_t offset = sampled ? transfer.sample_offset : transfer.program_offset;
+        stream = pdf.newStream(std::string(reinterpret_cast<const char*>(data + offset), size));
+        function = stream.getDict();
+    }
+    const int kind = sampled ? 0 : calculator ? 4 : stitched ? 3 : 2;
+    function.replaceKey("/FunctionType", QPDFObjectHandle::newInteger(kind));
+    function.replaceKey("/Domain", QPDFObjectHandle::newArray(
+        {precise_pdf_number(transfer.domain[0]), precise_pdf_number(transfer.domain[1])}));
+    if (transfer.has_range)
+        function.replaceKey("/Range", QPDFObjectHandle::newArray(
+            {precise_pdf_number(transfer.range[0]), precise_pdf_number(transfer.range[1])}));
+    if (calculator)
+        return stream;
+    if (sampled) {
+        function.replaceKey("/Size", QPDFObjectHandle::newArray(
+            {QPDFObjectHandle::newInteger(static_cast<long long>(transfer.sample_count))}));
+        function.replaceKey("/BitsPerSample", QPDFObjectHandle::newInteger(transfer.sample_bits));
+        function.replaceKey("/Order", QPDFObjectHandle::newInteger(transfer.sample_order));
+        function.replaceKey("/Encode", QPDFObjectHandle::newArray(
+            {precise_pdf_number(transfer.sample_encode[0]), precise_pdf_number(transfer.sample_encode[1])}));
+        function.replaceKey("/Decode", QPDFObjectHandle::newArray(
+            {precise_pdf_number(transfer.sample_decode[0]), precise_pdf_number(transfer.sample_decode[1])}));
+        return stream;
+    }
+    if (stitched) {
+        auto children = QPDFObjectHandle::newArray();
+        auto bounds = QPDFObjectHandle::newArray();
+        auto encode = QPDFObjectHandle::newArray();
+        for (std::size_t child = index + 1u; child < transfer.end; child = nodes[child].end) {
+            children.appendItem(make_mask_transfer(pdf, nodes, data, child));
+            if (nodes[child].end < transfer.end)
+                bounds.appendItem(precise_pdf_number(nodes[child].upper_bound));
+            encode.appendItem(precise_pdf_number(nodes[child].encode[0]));
+            encode.appendItem(precise_pdf_number(nodes[child].encode[1]));
+        }
+        function.replaceKey("/Functions", children);
+        function.replaceKey("/Bounds", bounds);
+        function.replaceKey("/Encode", encode);
+    } else {
+        function.replaceKey("/C0", QPDFObjectHandle::newArray({precise_pdf_number(transfer.c0)}));
+        function.replaceKey("/C1", QPDFObjectHandle::newArray({precise_pdf_number(transfer.c1)}));
+        function.replaceKey("/N", precise_pdf_number(transfer.exponent));
+    }
+    return pdf.makeIndirectObject(function);
+}
+
+QPDFObjectHandle make_clip_mask_group(
+    QPDF& pdf,
+    quantapdf_ir const* ir,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_clip_state const& group)
+{
+    std::string content;
+    const std::string fill = "0 0 " + number(page.width_points) + " " +
+        number(page.height_points) + " re f Q\n";
+    auto resources = QPDFObjectHandle::newDictionary();
+    auto states = QPDFObjectHandle::newDictionary();
+    const bool luminosity = group.mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+    for (std::size_t i = 0u; i < group.member_count; ++i) {
+        content += "q\n";
+        if (group.member_opacities != nullptr && group.member_opacities[i] != 1.0) {
+            const double opacity = group.member_opacities[i];
+            const std::string name = "/A" + std::to_string(i);
+            auto state = QPDFObjectHandle::newDictionary();
+            state.replaceKey("/ca", precise_pdf_number(opacity));
+            states.replaceKey(name, state);
+            content += name + " gs\n";
+        }
+        const auto& branch = ir->resources.clips[group.members[i] - 1u];
+        if (append_clip_content(&content, ir, page, branch) != nullptr)
+            throw std::logic_error("nested mask groups");
+        if (luminosity)
+            content += precise_pdf_number(group.member_luminosities[i]).unparse() + " g\n";
+        content += fill;
+    }
+    if (!states.getKeys().empty())
+        resources.replaceKey("/ExtGState", states);
+    // DeviceGray preserves the projected luminosity of every branch and the backdrop.
+    return make_transparency_group(pdf, content, resources, page, group.knockout != 0,
+        luminosity ? "/DeviceGray" : "/DeviceRGB");
 }
 
 std::string page_content(
@@ -1707,7 +1825,8 @@ std::string page_content(
     double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
     double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
     double const blue = (page.background_argb & 0xffu) / 255.0;
-    if (!page.suppress_background) {
+    // The Source canvas has a display backdrop, outside the PDF page group.
+    if (!page.suppress_background && ir->source_canvas.ascii[0] == '\0') {
         content += "q " + number(red) + " " + number(green) + " " +
             number(blue) + " rg 0 0 " + number(page.width_points) + " " +
             number(page.height_points) + " re f Q\n";
@@ -1730,7 +1849,7 @@ std::string page_content(
                     throw std::logic_error("clip resource missing");
                 content += "q\n";
                 append_clip_content(
-                    content,
+                    &content,
                     ir,
                     page,
                     ir->resources.clips[state.clip_id - 1u]);
@@ -1999,8 +2118,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         pdf.emptyPDF();
         std::vector<QPDFObjectHandle> image_objects;
         image_objects.reserve(ir->resources.image_count);
+        bool uses_wide_images = false;
         for (std::size_t i = 0; i < ir->resources.image_count; ++i) {
             auto const& image = ir->resources.images[i];
+            const bool wide = image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_RAW16;
+            uses_wide_images |= wide || image.mask_bits == 16u;
             auto stream = pdf.newStream(std::string(
                 reinterpret_cast<char const*>(image.data), image.size));
             auto dictionary = stream.getDict();
@@ -2011,14 +2133,39 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             dictionary.replaceKey(
                 "/Height", QPDFObjectHandle::newInteger(image.height));
             dictionary.replaceKey(
-                "/BitsPerComponent", QPDFObjectHandle::newInteger(8));
+                "/BitsPerComponent", QPDFObjectHandle::newInteger(wide ? 16 : 8));
             dictionary.replaceKey(
                 "/ColorSpace",
                 QPDFObjectHandle::newName(
                     image.components == 1 ? "/DeviceGray" : "/DeviceRGB"));
+            if (image.interpolate)
+                dictionary.replaceKey("/Interpolate", QPDFObjectHandle::newBool(true));
             if (image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG) {
                 dictionary.replaceKey(
                     "/Filter", QPDFObjectHandle::newName("/DCTDecode"));
+                if (image.components == 3) {
+                    auto parameters = QPDFObjectHandle::newDictionary();
+                    parameters.replaceKey("/ColorTransform",
+                        QPDFObjectHandle::newInteger(image.jpeg_color_transform));
+                    dictionary.replaceKey("/DecodeParms", parameters);
+                }
+            } else if (image.mask_bits == 1u) {
+                const size_t row_bytes = (static_cast<size_t>(image.mask_width) - 1u) / 8u + 1u;
+                std::string bits(row_bytes * image.mask_height, '\0');
+                for (size_t y = 0; y < image.mask_height; ++y)
+                    for (size_t x = 0; x < image.mask_width; ++x)
+                        if (image.alpha_data[y * image.mask_width + x] == 0u)
+                            bits[y * row_bytes + x / 8u] |= static_cast<char>(0x80u >> (x % 8u));
+                auto mask = pdf.newStream(bits);
+                auto mask_dictionary = mask.getDict();
+                mask_dictionary.replaceKey("/Type", QPDFObjectHandle::newName("/XObject"));
+                mask_dictionary.replaceKey("/Subtype", QPDFObjectHandle::newName("/Image"));
+                mask_dictionary.replaceKey("/Width", QPDFObjectHandle::newInteger(image.mask_width));
+                mask_dictionary.replaceKey("/Height", QPDFObjectHandle::newInteger(image.mask_height));
+                mask_dictionary.replaceKey("/ImageMask", QPDFObjectHandle::newBool(true));
+                if (image.mask_interpolate)
+                    mask_dictionary.replaceKey("/Interpolate", QPDFObjectHandle::newBool(true));
+                dictionary.replaceKey("/Mask", mask);
             } else if (image.has_alpha) {
                 auto alpha_stream = pdf.newStream(std::string(
                     reinterpret_cast<char const*>(image.alpha_data),
@@ -2029,13 +2176,15 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 alpha_dictionary.replaceKey(
                     "/Subtype", QPDFObjectHandle::newName("/Image"));
                 alpha_dictionary.replaceKey(
-                    "/Width", QPDFObjectHandle::newInteger(image.width));
+                    "/Width", QPDFObjectHandle::newInteger(image.mask_width != 0u ? image.mask_width : image.width));
                 alpha_dictionary.replaceKey(
-                    "/Height", QPDFObjectHandle::newInteger(image.height));
+                    "/Height", QPDFObjectHandle::newInteger(image.mask_height != 0u ? image.mask_height : image.height));
                 alpha_dictionary.replaceKey(
-                    "/BitsPerComponent", QPDFObjectHandle::newInteger(8));
+                    "/BitsPerComponent", QPDFObjectHandle::newInteger(image.mask_bits == 16u ? 16 : 8));
                 alpha_dictionary.replaceKey(
                     "/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
+                if (image.mask_interpolate)
+                    alpha_dictionary.replaceKey("/Interpolate", QPDFObjectHandle::newBool(true));
                 dictionary.replaceKey("/SMask", alpha_stream);
             }
             image_objects.push_back(stream);
@@ -2344,10 +2493,12 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                     throw std::logic_error("graphics state resource missing");
                 auto const& state =
                     ir->resources.graphics_states[id - 1u];
-                auto& object =
-                    state.soft_mask_id == 0u
-                    ? graphics_state_objects[id - 1u]
-                    : page_masked_graphics_state_objects[id - 1u];
+                const auto& page = ir->pages[page_index];
+                const auto* mask_group = state.clip_id == 0u ? nullptr :
+                    append_clip_content(nullptr, ir, page, ir->resources.clips[state.clip_id - 1u]);
+                auto& object = state.soft_mask_id != 0u || mask_group != nullptr
+                    ? page_masked_graphics_state_objects[id - 1u]
+                    : graphics_state_objects[id - 1u];
                 if (!object.has_value()) {
                     object = make_graphics_state(pdf, state);
                     if (state.soft_mask_id != 0u) {
@@ -2362,6 +2513,21 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                                 : "/Luminosity"));
                         soft_mask.replaceKey(
                             "/G", ensure_soft_mask_group(state.soft_mask_id));
+                        if (mask_group != nullptr)
+                            throw std::logic_error("multiple masks on one graphics state");
+                        object->replaceKey("/SMask", soft_mask);
+                    } else if (mask_group != nullptr) {
+                        auto soft_mask = QPDFObjectHandle::newDictionary();
+                        const bool luminosity = mask_group->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+                        soft_mask.replaceKey("/S", QPDFObjectHandle::newName(luminosity ? "/Luminosity" : "/Alpha"));
+                        if (luminosity && mask_group->backdrop_luminosity != 0.0) {
+                            auto backdrop = QPDFObjectHandle::newArray();
+                            backdrop.appendItem(precise_pdf_number(mask_group->backdrop_luminosity));
+                            soft_mask.replaceKey("/BC", backdrop);
+                        }
+                        if (mask_group->transfer != nullptr)
+                            soft_mask.replaceKey("/TR", make_mask_transfer(pdf, mask_group->transfer, mask_group->transfer_data, 0u));
+                        soft_mask.replaceKey("/G", make_clip_mask_group(pdf, ir, page, *mask_group));
                         object->replaceKey("/SMask", soft_mask);
                     }
                 }
@@ -2440,7 +2606,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         writer.setStaticID(true);
         writer.setObjectStreamMode(qpdf_o_disable);
         writer.setMinimumPDFVersion(
-            requires_pdf_16 ? "1.6" : "1.4");
+            requires_pdf_16 ? "1.6" : uses_wide_images ? "1.5" : "1.4");
         writer.write();
         std::unique_ptr<Buffer> buffer(writer.getBuffer());
         if (buffer->getSize() == 0u)

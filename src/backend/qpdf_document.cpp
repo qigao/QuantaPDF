@@ -632,13 +632,13 @@ static quantapdf_rect quantapdf_qpdf_pdf_rectangle_to_public(
     quantapdf_qpdf_pdf_point_to_public(
         geometry, raw[2], raw[3], &x[3], &y[3]);
     quantapdf_rect result = {};
-    result.x0 = result.x1 = static_cast<float>(x[0]);
-    result.y0 = result.y1 = static_cast<float>(y[0]);
+    result.x0 = result.x1 = x[0];
+    result.y0 = result.y1 = y[0];
     for (size_t index = 1; index < 4u; ++index) {
-        result.x0 = std::min(result.x0, static_cast<float>(x[index]));
-        result.y0 = std::min(result.y0, static_cast<float>(y[index]));
-        result.x1 = std::max(result.x1, static_cast<float>(x[index]));
-        result.y1 = std::max(result.y1, static_cast<float>(y[index]));
+        result.x0 = std::min(result.x0, x[index]);
+        result.y0 = std::min(result.y0, y[index]);
+        result.x1 = std::max(result.x1, x[index]);
+        result.y1 = std::max(result.y1, y[index]);
     }
     return result;
 }
@@ -2738,14 +2738,10 @@ extern "C" quantapdf_status quantapdf_qpdf_page_box_bounds(
             geometry.media : visible;
         *out_bounds = quantapdf_qpdf_pdf_rectangle_to_public(
             geometry, selected);
-        out_bounds->x0 = static_cast<float>(
-            out_bounds->x0 / geometry.user_unit);
-        out_bounds->y0 = static_cast<float>(
-            out_bounds->y0 / geometry.user_unit);
-        out_bounds->x1 = static_cast<float>(
-            out_bounds->x1 / geometry.user_unit);
-        out_bounds->y1 = static_cast<float>(
-            out_bounds->y1 / geometry.user_unit);
+        out_bounds->x0 /= geometry.user_unit;
+        out_bounds->y0 /= geometry.user_unit;
+        out_bounds->x1 /= geometry.user_unit;
+        out_bounds->y1 /= geometry.user_unit;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);

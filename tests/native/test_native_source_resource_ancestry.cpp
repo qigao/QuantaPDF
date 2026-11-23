@@ -91,7 +91,7 @@ static std::string source_pdf()
         "q 16 0 0 12 0 0 cm /Missing Do Q ", /* 3 missing name */
         draw,                               /* 4 local empty /XObject */
         clipped,                            /* 5 nested green */
-        clipped+" BT ET",                    /* 6 late unsupported Text */
+        clipped+" BT 1 Tr ET",                    /* 6 late unsupported Text */
         draw,                               /* 7 nested green full page */
         draw,                               /* 8 /Resources is Integer */
         draw,                               /* 9 /XObject is Integer */

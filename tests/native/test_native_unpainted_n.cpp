@@ -187,7 +187,7 @@ static int negative()
      * unbalanced q/Q; every invalid original is refused atomically. */
     const char *const invalid[]={
         "1 n",
-        "4 4 8 6 re n BT ET",
+        "4 4 8 6 re n BT 1 Tr ET",
         "4 4 8 6 re n 4 4 8 6 re S",
         "4 4 8 6 re n Q",
         "4 4 8 6 re n 1 n",

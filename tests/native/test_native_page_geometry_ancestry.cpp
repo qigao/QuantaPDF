@@ -32,6 +32,7 @@ struct rendered {
 };
 struct expected_geometry {
     unsigned width_quarters=0u,height_quarters=0u,user_quarters=4u;
+    unsigned denominator=4u;
 };
 static constexpr std::array<expected_geometry,page_count> geometry={{
     {64u,48u,4u}, /*  0 inherited root MediaBox */
@@ -42,7 +43,7 @@ static constexpr std::array<expected_geometry,page_count> geometry={{
     {42u,35u,4u}, /*  5 fractional CropBox edges */
     {64u,48u,4u}, /*  6 exact original Rotate 180 */
     {64u,48u,5u}, /*  7 original /UserUnit 1.25 */
-    {},{},{},{},{},{},{},{}, /*  8..15 invalid */
+    {},{},{},{},{161u,120u,4u,10u},{},{},{}, /* 12: ordinary decimal MediaBox */
     {},             /* 16 invalid branch inherited CropBox */
     {32u,24u,4u},  /* 17 local valid CropBox shadows invalid parent */
     {},             /* 18 invalid branch inherited MediaBox */
@@ -59,7 +60,7 @@ static quantapdf_status expected_refusal(int i)
     /* V10 exact quarter lattice and physical UserUnit lease are separate
      * strict Unsupported conditions; malformed/empty boxes and Rotate
      * are Format errors in the existing public QPDF geometry reader. */
-    return i==12 || i==15 ?
+    return i==15 ?
         QUANTAPDF_ERROR_UNSUPPORTED:QUANTAPDF_ERROR_FORMAT;
 }
 
@@ -194,9 +195,9 @@ static bool expected_pixels(const rendered& image,int index,int dpi)
 {
     const auto& geo=geometry[static_cast<size_t>(index)];
     const unsigned w=(geo.width_quarters*geo.user_quarters*
-                      static_cast<unsigned>(dpi)+1151u)/1152u;
+                      static_cast<unsigned>(dpi)+288u*geo.denominator-1u)/(288u*geo.denominator);
     const unsigned h=(geo.height_quarters*geo.user_quarters*
-                      static_cast<unsigned>(dpi)+1151u)/1152u;
+                      static_cast<unsigned>(dpi)+288u*geo.denominator-1u)/(288u*geo.denominator);
     if(image.width!=static_cast<int>(w) ||
        image.height!=static_cast<int>(h) ||
        image.rgb.size()!=static_cast<size_t>(w)*
@@ -308,7 +309,7 @@ static int qualify()
                       std::memcmp(data,held_rgb.data(),n)==0);
             }
         }
-        for(int i:{0,1,2,3,4,5,6,7,17,19})
+        for(int i:{0,1,2,3,4,5,6,7,12,17,19})
             CHECK(seen[static_cast<size_t>(i)]);
     }
     quantapdf_close(doc);
@@ -320,7 +321,7 @@ static int qualify()
     CHECK(data!=nullptr && n==held_rgb.size() &&
           std::memcmp(data,held_rgb.data(),n)==0);
     quantapdf_drop_bitmap(held);
-    CHECK(renders==45u && refusals==39u);
+    CHECK(renders==48u && refusals==36u);
     std::printf("Native Source geometry ancestry: %zu renders, "
                 "%zu atomic refusals\n",renders,refusals);
     return EXIT_SUCCESS;

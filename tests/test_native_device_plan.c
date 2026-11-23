@@ -1,6 +1,7 @@
 #include "render/native_device_plan.h"
 
 #include <math.h>
+#include <float.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -230,6 +231,40 @@ static int test_physical_grid(void)
     return 0;
 }
 
+static int test_integer_dpi(void)
+{
+    const unsigned dpis[]={1u,23u,71u,73u,110u,113u,120u,150u,300u,600u};
+    for(size_t d=0u;d<sizeof(dpis)/sizeof(dpis[0]);++d) {
+        const size_t w=(70u*dpis[d]+71u)/72u,h=(56u*dpis[d]+71u)/72u;
+        for(int rotation=0;rotation<360;rotation+=90) {
+            const int swap=rotation==90 || rotation==270;
+            quantapdf_native_device_plan p;
+            for(unsigned physical=0u;physical<2u;++physical) {
+                const quantapdf_status status=physical?
+                    quantapdf_native_device_plan_create_physical("0 0 20 20",
+                        "6.1 3.1 16.1 11.1","7",rotation,dpis[d],w*h,&p):
+                    quantapdf_native_device_plan_create("0 0 20 20",
+                        "6.1 3.1 16.1 11.1","7",rotation,dpis[d],w*h,&p);
+                OK(status);
+                CHECK(p.width==(swap?h:w) && p.height==(swap?w:h));
+                CHECK(quantapdf_native_device_plan_matches_page_mode(&p,
+                    physical?QUANTAPDF_NATIVE_DEVICE_PHYSICAL_V1:QUANTAPDF_NATIVE_DEVICE_FIT_V1,
+                    swap?56.0f:70.0f,swap?70.0f:56.0f,w*h));
+                if(physical) {
+                    double x,y;map(p.source_to_device,11.1,7.1,&x,&y);
+                    CHECK(near(x,p.width_points*dpis[d]/144.0) &&
+                          near(y,p.height_points*dpis[d]/144.0));
+                }
+            }
+            memset(&p,0xa5,sizeof(p));
+            CHECK(quantapdf_native_device_plan_create_physical("0 0 20 20",
+                "6.1 3.1 16.1 11.1","7",rotation,dpis[d],w*h-1u,&p)==
+                (w*h==1u?QUANTAPDF_ERROR_ARGUMENT:QUANTAPDF_ERROR_UNSUPPORTED) && zero_plan(&p));
+        }
+    }
+    return 0;
+}
+
 static int test_fail_closed(void)
 {
     static const struct {
@@ -239,7 +274,7 @@ static int test_fail_closed(void)
         size_t cap;
     } bad[] = {
         {"0 0 10 8", "0 0 10 8", "1", 45, 72u, 1000000u},
-        {"0 0 10 8", "0 0 10 8", "1", 0, 73u, 1000000u},
+        {"0 0 10 8", "0 0 10 8", "1", 0, 0u, 1000000u},
         {"0 0 10 8", "0 0 10 8", "1", 0, 72u, 1000001u},
         {"0 0 10 8", "0 0 10.000000000001 8", "1", 0, 72u, 1000000u},
         {"0 0 10 8", "-.000000000001 0 10 8", "1", 0, 72u, 1000000u},
@@ -307,10 +342,83 @@ static int test_fail_closed(void)
     return 0;
 }
 
+static int test_exact_sample_fringe(void)
+{
+    const char *boxes[]={"0 0 12.124999999999 11.124999999999",
+        "0 0 12.125 11.125","0 0 12.125000000001 11.125000000001",
+        "0 0 12.000000000001 11.000000000001"};
+    const size_t samples_x[]={48u,48u,49u,48u},samples_y[]={44u,44u,45u,44u};
+    for(size_t i=0u;i<4u;++i)for(int rotation=0;rotation<360;rotation+=90) {
+        quantapdf_native_device_plan p;
+        const int swap=rotation==90 || rotation==270;
+        OK(quantapdf_native_device_plan_create_physical(boxes[i],boxes[i],"1",rotation,72u,1000000u,&p));
+        CHECK(p.width==(swap?12u:13u) && p.height==(swap?13u:12u));
+        CHECK(p.sample_width==(swap?samples_y[i]:samples_x[i]) &&
+              p.sample_height==(swap?samples_x[i]:samples_y[i]));
+    }
+    return 0;
+}
+
+static int test_binary32_dpi(void)
+{
+    const unsigned rates[][2]={{1u,2u},{185u,8u},{147u,2u},{1537u,16u},{4801u,32u}};
+    for(size_t r=0u;r<sizeof(rates)/sizeof(rates[0]);++r)for(int turn=0;turn<360;turn+=90) {
+        const float dpi=(float)rates[r][0]/(float)rates[r][1];
+        quantapdf_native_device_plan p;
+        OK(quantapdf_native_device_plan_create_physical("0 0 237.133 180.44",
+            "0 0 237.133 180.44","0.75",turn,dpi,1000000u,&p));
+        const uint64_t b=UINT64_C(4000)*72u*rates[r][1];
+        const uint64_t a[2]={UINT64_C(237133)*3u*rates[r][0],UINT64_C(180440)*3u*rates[r][0]};
+        size_t pixels[2],samples[2];
+        for(size_t i=0u;i<2u;++i) {
+            pixels[i]=(size_t)(a[i]/b+(a[i]%b!=0u));
+            samples[i]=8u*a[i]<=b?0u:(size_t)((8u*a[i]-b+2u*b-1u)/(2u*b));
+        }
+        const size_t x=(turn==90 || turn==270)?1u:0u,y=1u-x;
+        CHECK(p.dpi==dpi && p.width==pixels[x] && p.height==pixels[y] &&
+            p.sample_width==samples[x] && p.sample_height==samples[y]);
+        CHECK(quantapdf_native_device_plan_matches_physical_page(&p,
+            (float)p.width_points,(float)p.height_points,1000000u));
+    }
+    // Every binary32 exponent is handled without narrowing to an integer
+    // or overflowing a denominator. High rates fail the real pixel budget.
+    for(int exponent=-149;exponent<=127;++exponent) {
+        quantapdf_native_device_plan p;memset(&p,0xa5,sizeof(p));
+        const float dpi=ldexpf(1.0f,exponent);
+        const quantapdf_status status=quantapdf_native_device_plan_create_physical(
+            "0 0 1 1","0 0 1 1","1",0,dpi,1000000u,&p);
+        if(exponent>=17) {CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && zero_plan(&p));continue;}
+        CHECK(status==QUANTAPDF_OK && p.dpi==dpi);
+        if(exponent<=3)CHECK(p.width==1u && p.height==1u && p.sample_width==0u && p.sample_height==0u);
+        else {
+            const uint64_t n=UINT64_C(1)<<(unsigned)exponent;
+            const size_t pixels=(size_t)((n+71u)/72u),samples=(size_t)((n-9u+17u)/18u);
+            CHECK(p.width==pixels && p.height==pixels && p.sample_width==samples && p.sample_height==samples);
+        }
+    }
+    {
+        quantapdf_native_device_plan p;
+        OK(quantapdf_native_device_plan_create_physical("0 0 810 810","0 0 810 810","1",0,0.1f,4u,&p));
+        CHECK(p.width==2u && p.height==2u && p.sample_width==5u && p.sample_height==5u);
+        CHECK(quantapdf_native_device_plan_create_physical("0 0 810 810","0 0 810 810","1",0,0.1f,3u,&p)==QUANTAPDF_ERROR_UNSUPPORTED && zero_plan(&p));
+        const float rates[]={nextafterf(9.0f,0.0f),9.0f,nextafterf(9.0f,INFINITY),
+            nextafterf(72.0f,0.0f),72.0f,nextafterf(72.0f,INFINITY)};
+        const size_t pixels[]={1u,1u,1u,1u,1u,2u},samples[]={0u,0u,1u,4u,4u,4u};
+        for(size_t i=0u;i<6u;++i) {
+            OK(quantapdf_native_device_plan_create_physical("0 0 1 1","0 0 1 1","1",0,rates[i],4u,&p));
+            CHECK(p.width==pixels[i] && p.height==pixels[i] && p.sample_width==samples[i] && p.sample_height==samples[i]);
+        }
+        const float invalid[]={0.0f,-1.0f,NAN,INFINITY,FLT_MAX};
+        for(size_t i=0u;i<5u;++i)CHECK(quantapdf_native_device_plan_create_physical(
+            "0 0 1 1","0 0 1 1","1",0,invalid[i],1000000u,&p)==QUANTAPDF_ERROR_UNSUPPORTED && zero_plan(&p));
+    }
+    return 0;
+}
+
 int main(void)
 {
     if (test_exact_grid_and_unit() || test_crop_rotation_and_samples() ||
-        test_physical_grid() || test_fail_closed())
+        test_physical_grid() || test_integer_dpi() || test_fail_closed() || test_exact_sample_fringe() || test_binary32_dpi())
         return EXIT_FAILURE;
     puts("native device FIT/physical plans: exact grids, source maps and refusal contracts passed");
     return EXIT_SUCCESS;

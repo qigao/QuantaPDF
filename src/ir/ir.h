@@ -26,6 +26,13 @@ typedef struct quantapdf_composer_outline_state {
     int is_open;
 } quantapdf_composer_outline_state;
 
+typedef struct quantapdf_source_canvas {
+    /* Exact dimensions for device planning, plus their one-time numeric
+     * projection for geometry/plan identity. No QPDF owner escapes Source. */
+    char ascii[96];
+    double width_points, height_points;
+} quantapdf_source_canvas;
+
 /* Unique payload ownership; zero initialization creates an empty model.
  * Const consumers borrow all reachable storage for the duration of the call. */
 typedef struct quantapdf_ir {
@@ -38,6 +45,10 @@ typedef struct quantapdf_ir {
     size_t link_count;
     quantapdf_composer_outline_state *outlines;
     size_t outline_count;
+    /* Source's canonical physical canvas in exact decimal points, "0 0 W H".
+     * Inline ownership preserves original page extents across the float page
+     * metadata. Composer IR has no original PDF canvas and leaves this empty. */
+    quantapdf_source_canvas source_canvas;
 } quantapdf_ir;
 
 #ifdef __cplusplus

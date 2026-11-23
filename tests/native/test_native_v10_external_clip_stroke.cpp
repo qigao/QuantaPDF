@@ -147,7 +147,7 @@ static int check(const std::filesystem::path& assets)
             else if(case_index==9u)
                 contents=rect_clip+"q "+blue_triangle+"Q ";
             else if(case_index==10u)
-                contents=original_ops+"BT ET";
+                contents=original_ops+"BT 1 Tr ET";
             else if(case_index==11u)
                 contents=original_ops+"10 10 m 25 40 l 40 10 l s";
             else if(case_index==12u)

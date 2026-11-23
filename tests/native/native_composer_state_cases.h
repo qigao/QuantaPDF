@@ -26,7 +26,8 @@ inline quantapdf_status form_content(quantapdf_composer *composer,size_t page,vo
     paint.fill=1;paint.fill_argb=UINT32_C(0xffffffff);paint.fill_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
     return quantapdf_composer_draw_path(composer,page,commands.data(),commands.size(),&paint);
 }
-inline std::vector<unsigned char> rgb(size_t page,unsigned dpi,bool clipped)
+inline std::vector<unsigned char> rgb(size_t page,unsigned dpi,bool clipped,
+    unsigned first_paints,bool first_translucent)
 {
     const size_t width_points=page==0u?12u:18u,height_points=page==0u?12u:16u;
     const size_t width=(width_points*dpi+71u)/72u,height=(height_points*dpi+71u)/72u;
@@ -44,7 +45,12 @@ inline std::vector<unsigned char> rgb(size_t page,unsigned dpi,bool clipped)
             const bool in_clip=!clipped || g!=0u || (px>=scale && px<2.0*scale && py>=2.0*scale && py<3.0*scale);
             hits+=unsigned(px>=x0 && px<x1 && py>=y0 && py<y1 && in_clip);
         }
-        for(size_t c=0u;c<3u;++c) {auto& value=pixels[(y*width+x)*3u+c];value=static_cast<unsigned char>((colors[g][c]*hits+unsigned(value)*(16u-hits)+8u)/16u);}
+        const unsigned samples=g==0u && first_translucent?32u:16u;
+        const unsigned paints=g==0u?first_paints:1u;
+        for(unsigned paint=0u;paint<paints;++paint)for(size_t c=0u;c<3u;++c) {
+            auto& value=pixels[(y*width+x)*3u+c];
+            value=static_cast<unsigned char>((colors[g][c]*hits+unsigned(value)*(samples-hits)+samples/2u)/samples);
+        }
     }
     return pixels;
 }
@@ -95,7 +101,12 @@ static int composer_state_cases(const std::string& filename)
     const auto font_path=std::filesystem::path(__FILE__).parent_path().parent_path()/"fixtures"/"fonts"/"Roboto-Regular.ttf";
     std::ifstream font_file(font_path,std::ios::binary);
     const std::vector<unsigned char> font{std::istreambuf_iterator<char>(font_file),{}};CHECK(!font.empty());
-    for(unsigned mode=0u;mode<6u;++mode) {
+    for(unsigned mode=0u;mode<9u;++mode) {
+        const bool soft_mask_case=mode==4u || mode==5u;
+        const bool overlap=mode>=6u;
+        const auto knockout=mode==7u?QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_ENABLED:
+            mode==8u?QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED:QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT;
+        const unsigned first_paints=knockout==QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED?2u:1u;
         quantapdf_context *context=nullptr;quantapdf_composer *composer=nullptr;
         size_t finalized=0u;OK(quantapdf_context_create(&context));context->test_finalizations=&finalized;
         OK(quantapdf_composer_create_with_context(context,nullptr,&composer));
@@ -110,7 +121,7 @@ static int composer_state_cases(const std::string& filename)
         clip_options.transform={1,0,0,1,1,2};
         OK(quantapdf_composer_add_clip_path(composer,cut.data(),cut.size(),&clip_options,&cut_id));CHECK(cut_id!=full_id);
         quantapdf_composer_soft_mask_id alpha=0u,luminosity=0u,translated=0u;
-        if(mode>=4u) {
+        if(soft_mask_case) {
             quantapdf_composer_form_options form{};form.struct_size=sizeof(form);form.width_points=form.height_points=4.0f;
             form.flags=QUANTAPDF_COMPOSER_FORM_FLAG_TRANSPARENCY_GROUP|QUANTAPDF_COMPOSER_FORM_FLAG_ISOLATED;
             quantapdf_composer_form_id group=99u,ordinary=0u;
@@ -130,24 +141,45 @@ static int composer_state_cases(const std::string& filename)
             CHECK(quantapdf_composer_add_soft_mask(composer,group,&mask,&invalid)==QUANTAPDF_ERROR_ARGUMENT && invalid==0u);
         }
         const quantapdf_composer_graphics_state_options state{
-            mode==2u?0.5f:1.0f,mode==2u?0.25f:1.0f,
+            mode==2u || overlap?0.5f:1.0f,mode==2u?0.25f:1.0f,
             mode==3u?QUANTAPDF_COMPOSER_BLEND_MULTIPLY:QUANTAPDF_COMPOSER_BLEND_NORMAL,
-            mode==0u?0u:cut_id,mode==4u?translated:mode==5u?luminosity:0u};
+            mode==0u?0u:cut_id,mode==4u?translated:mode==5u?luminosity:0u,knockout};
         auto invalid=state;quantapdf_composer_graphics_state_id rejected=99u,id=0u,duplicate=0u;
         invalid.clip_id=SIZE_MAX;CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
         invalid=state;invalid.soft_mask_id=SIZE_MAX;rejected=99u;
         CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
         invalid=state;invalid.fill_alpha=std::numeric_limits<float>::quiet_NaN();rejected=99u;
         CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
+        invalid=state;invalid.text_knockout=static_cast<quantapdf_composer_text_knockout>(99);rejected=99u;
+        CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
         OK(quantapdf_composer_add_graphics_state(composer,&state,&id));OK(quantapdf_composer_add_graphics_state(composer,&state,&duplicate));CHECK(id==duplicate);
+        if(overlap) {
+            auto variant=state;
+            std::array<quantapdf_composer_graphics_state_id,3> variant_ids{};
+            size_t index=0u;
+            for(const auto value:{QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT,
+                QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_ENABLED,QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED}) {
+                variant.text_knockout=value;
+                auto& variant_id=variant_ids[index++];
+                OK(quantapdf_composer_add_graphics_state(composer,&variant,&variant_id));
+                CHECK((variant_id==id)==(value==knockout));
+            }
+            CHECK(variant_ids[0]!=variant_ids[1] && variant_ids[0]!=variant_ids[2] &&
+                  variant_ids[1]!=variant_ids[2]);
+        }
         quantapdf_composer_font_options font_options{};font_options.struct_size=sizeof(font_options);quantapdf_composer_font_id font_id=0u;
         OK(quantapdf_composer_add_font(composer,font.data(),font.size(),&font_options,&font_id));
         const quantapdf_composer_glyph glyph{81u,243.0f,0.0f,0.0f,0.0f,0u,1u};
+        const quantapdf_composer_glyph coincident[]={{81u,0.0f,0.0f,0.0f,0.0f,0u,1u},
+            {81u,243.0f,0.0f,0.0f,0.0f,1u,1u}};
         for(size_t page=0u;page<2u;++page)for(unsigned g=0u;g<2u;++g) {
             quantapdf_composer_glyph_run_options text{};text.struct_size=sizeof(text);text.font_id=font_id;text.font_size=4.0f;
             text.argb=g==0u?UINT32_C(0xff336699):UINT32_C(0xffcc3366);text.graphics_state_id=g==0u?id:0u;
             const quantapdf_point origin{g==0u?1.25f:6.25f,g==0u?4.25f:7.25f};
-            OK(quantapdf_composer_draw_glyph_run(composer,page,origin,&glyph,1u,"l",1u,&text));
+            if(overlap && g==0u)
+                OK(quantapdf_composer_draw_glyph_run(composer,page,origin,coincident,2u,"ll",2u,&text));
+            else
+                OK(quantapdf_composer_draw_glyph_run(composer,page,origin,&glyph,1u,"l",1u,&text));
         }
         quantapdf_output *output=nullptr;const unsigned char *data=nullptr;size_t size=0u;
         OK(quantapdf_composer_finish(composer,&output));OK(quantapdf_output_data(output,&data,&size));
@@ -161,7 +193,10 @@ static int composer_state_cases(const std::string& filename)
             auto gs=states.getKey("/GS"+std::to_string(id));CHECK(gs.isDictionary() && gs.getKey("/Type").isNameAndEquals("/ExtGState"));
             CHECK(gs.getKey("/ca").getNumericValue()==state.fill_alpha && gs.getKey("/CA").getNumericValue()==state.stroke_alpha &&
                 gs.getKey("/BM").isNameAndEquals(mode==3u?"/Multiply":"/Normal"));
-            if(mode>=4u) {
+            auto tk=gs.getKey("/TK");
+            if(knockout==QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT)CHECK(tk.isNull());
+            else CHECK(tk.isBool() && tk.getBoolValue()==(knockout==QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_ENABLED));
+            if(soft_mask_case) {
                 auto mask=gs.getKey("/SMask");CHECK(mask.isDictionary() && mask.getKey("/S").isNameAndEquals(mode==4u?"/Alpha":"/Luminosity"));
                 auto group=mask.getKey("/G");CHECK(group.isStream());auto dict=group.getDict(),bbox=dict.getKey("/BBox");
                 CHECK(bbox.getArrayItem(2).getNumericValue()==(page==0u?12.0:18.0) && bbox.getArrayItem(3).getNumericValue()==(page==0u?12.0:16.0));
@@ -185,10 +220,11 @@ static int composer_state_cases(const std::string& filename)
         for(size_t page=0u;page<2u;++page)for(unsigned dpi:{72u,96u,144u}) {
             quantapdf_bitmap *bitmap=nullptr;const quantapdf_render_options options{float(dpi),0.0f,0,{},0};
             const auto status=quantapdf_render_page_with_options(pages[page],&options,&bitmap);
-            if(mode<2u) {
+            if(mode<2u || mode==3u || overlap) {
                 if(status!=QUANTAPDF_OK)std::fprintf(stderr,"Composer state mode=%u page=%zu dpi=%u status=%d\n",mode,page,dpi,int(status));
                 CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
-                const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(bitmap,&pixels,&n));const auto expected=rgb(page,dpi,mode==1u);
+                const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(bitmap,&pixels,&n));const auto expected=rgb(page,dpi,mode!=0u,first_paints,overlap);
+                if(overlap)CHECK(expected!=rgb(page,dpi,true,3u-first_paints,true));
                 if(n==expected.size() && std::memcmp(pixels,expected.data(),n)!=0)for(size_t i=0u;i<n;++i)if(pixels[i]!=expected[i]) {std::fprintf(stderr,"Composer RGB mode=%u page=%zu dpi=%u byte=%zu got=%u want=%u\n",mode,page,dpi,i,unsigned(pixels[i]),unsigned(expected[i]));break;}
                 CHECK(n==expected.size() && std::memcmp(pixels,expected.data(),n)==0);bitmaps.push_back({bitmap,page,dpi});++renders;
             } else {CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);++refusals;}
@@ -196,14 +232,14 @@ static int composer_state_cases(const std::string& filename)
         for(auto page:pages)quantapdf_drop_page(page);
         CHECK(finalized==(bitmaps.empty()?1u:0u));
         for(const auto& value:bitmaps) {
-            const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(value.bitmap,&pixels,&n));const auto expected=rgb(value.page,value.dpi,mode==1u);
+            const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(value.bitmap,&pixels,&n));const auto expected=rgb(value.page,value.dpi,mode!=0u,first_paints,overlap);
             CHECK(n==expected.size() && std::memcmp(pixels,expected.data(),n)==0);quantapdf_drop_bitmap(value.bitmap);
         }
         CHECK(finalized==1u);
     }
-    CHECK(renders==12u && refusals==24u && serialized==12u);
+    CHECK(renders==36u && refusals==18u && serialized==18u);
     CHECK(svg_records(filename)==EXIT_SUCCESS);
-    std::printf("Current Composer state records: %zu reopened page resource graphs, %zu analytic RGB renders, %zu honest native alpha/blend/SMask refusals; clip/mask IDs, transforms, dedup, builder errors and retired owners passed\n",serialized,renders,refusals);
+    std::printf("Current Composer state records: %zu reopened page resource graphs, %zu analytic RGB renders including Multiply and text knockout, %zu native stroke-alpha/nested-SMask refusals; clip/mask IDs, transforms, dedup, builder errors and retired owners passed\n",serialized,renders,refusals);
     std::puts("SVG path/group/use alpha masks and path luminosity mask retain current graphics-state fields in reopened PDFs; native transparency explicitly unsupported");
     return EXIT_SUCCESS;
 }

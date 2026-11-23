@@ -29,6 +29,10 @@ typedef struct quantapdf_composer_text_operation {
 typedef struct quantapdf_composer_image_operation {
     quantapdf_composer_image_id image_id;
     quantapdf_composer_image_options options;
+    /* Placement-space to page-space, as for Text/Path. All zero is identity.
+     * Source affine images use a unit placement rectangle and retain the
+     * original texel orientation independently of this geometric mapping. */
+    quantapdf_affine_transform transform;
 } quantapdf_composer_image_operation;
 
 typedef struct quantapdf_composer_path_operation {
@@ -70,6 +74,7 @@ typedef struct quantapdf_text_outline_operation {
     quantapdf_outline_glyph *glyphs;
     size_t glyph_count;
     uint32_t argb;
+    int merge_glyph_coverage;
 } quantapdf_text_outline_operation;
 
 typedef struct quantapdf_composer_operation {
