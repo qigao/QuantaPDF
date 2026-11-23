@@ -168,7 +168,7 @@ inline constexpr const char* calculator_stitch_mask =
 inline original create_alpha_group(const std::string& page_content, const std::string& mask_content,
     const char *form_dictionary=alpha_form, const char *soft_mask="<< /S /Alpha /TR /Identity >>",
     bool cyclic_transfer=false,const std::vector<stream_transfer_fixture>& streams={},
-    unsigned char image_opacity=255u)
+    unsigned char image_opacity=255u,bool blend_images=false)
 {
     auto pdf=QPDF::create();
     const auto font_fixture=native_ttf_fixture();
@@ -218,9 +218,33 @@ inline original create_alpha_group(const std::string& page_content, const std::s
     auto objects=Object::newDictionary();
     objects.replaceKey("/Plain",image);
     objects.replaceKey("/Own",masked_image);
+    if(blend_images) {
+        color.replaceKey("/Width",Object::newInteger(2));
+        color.replaceKey("/Interpolate",Object::newBool(true));
+        const std::string rgb("\xcc\x66\x33\x33\xcc\x66",6u);
+        auto interpolated=pdf->newStream(rgb);
+        auto keyed=pdf->newStream(rgb);
+        auto wide=pdf->newStream(std::string(
+            "\xcc\xcd\x66\x66\x33\x33\x33\x33\xcc\xcc\x66\x66",12u));
+        for(const auto& key:color.getKeys()) {
+            interpolated.getDict().replaceKey(key,color.getKey(key));
+            keyed.getDict().replaceKey(key,color.getKey(key));
+            wide.getDict().replaceKey(key,color.getKey(key));
+        }
+        keyed.getDict().replaceKey("/Mask",Object::parse("[204 204 102 102 51 51]"));
+        auto ramp=pdf->newStream(std::string("\0\xff",2u));
+        gray.replaceKey("/Width",Object::newInteger(2));
+        gray.replaceKey("/Interpolate",Object::newBool(true));
+        for(const auto& key:gray.getKeys())ramp.getDict().replaceKey(key,gray.getKey(key));
+        wide.getDict().replaceKey("/BitsPerComponent",Object::newInteger(16));
+        wide.getDict().replaceKey("/SMask",ramp);
+        objects.replaceKey("/Interpolated",interpolated);
+        objects.replaceKey("/Keyed",keyed);
+        objects.replaceKey("/WideMask",wide);
+    }
     resources.replaceKey("/XObject",objects);
     QPDFWriter writer(*pdf);
-    writer.setMinimumPDFVersion("1.4");
+    writer.setMinimumPDFVersion(blend_images?"1.5":"1.4");
     writer.setOutputMemory();
     writer.write();
     const auto buffer=writer.getBufferSharedPointer();

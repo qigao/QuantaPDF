@@ -715,9 +715,9 @@ public:
             count(op=="'"?1u:3u); if(op=="\"") { g.word=number(args[0]); g.character=number(args[1]); } move(0,-g.leading); show(args.back());
         } else if(op=="Do" && p.outline_mode) {
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
-            supported(g.blend==QUANTAPDF_COMPOSER_BLEND_NORMAL);
             const Obj image=resource("/XObject",args[0]);
-            const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.fill,g.clip_id,g.mask_clip_id,g.opacity);
+            const auto result=p.source_mixed.on_image(
+                p.source_mixed.user,image,g.ctm,g.fill,g.clip_id,g.mask_clip_id,g.opacity,g.blend);
             need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs" && p.outline_mode) {

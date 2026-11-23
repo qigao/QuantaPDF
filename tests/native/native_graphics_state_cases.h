@@ -1,6 +1,8 @@
 #ifndef QUANTAPDF_NATIVE_GRAPHICS_STATE_CASES_H
 #define QUANTAPDF_NATIVE_GRAPHICS_STATE_CASES_H
 #include "native_graphics_state_fixture.h"
+#include <cmath>
+#include <iterator>
 static int alpha_group_cases(const std::string& filename)
 {
     using namespace native_graphics_fixture;
@@ -497,10 +499,60 @@ static int alpha_group_cases(const std::string& filename)
             }
         }
     }
+    for(size_t mode=0u;mode<std::size(blends);++mode) {
+        const std::string gs=std::string(blends[mode].name)+" gs ";
+        const auto page=create_alpha_group(
+            ".2 .6 .8 rg 0 0 10 4 re f 10 2 1 2 re f 11 0 1 4 re f "
+            "q "+gs+"1 0 0 4 10 0 cm /Plain Do Q "
+            "q "+gs+"/Half gs /Alpha gs "
+            "q .25 0 3.5 4 re W n 4 0 0 4 0 0 cm /Interpolated Do Q BT ET "
+            "q 4 0 0 4 4 0 cm /WideMask Do Q "
+            "q 2 0 0 4 8 0 cm /Keyed Do Q Q "
+            "q 1 0 0 4 11 0 cm /Plain Do Q",
+            "/Quarter gs 0 0 4 4 re f",
+            "<< /Subtype /Form /BBox [0 0 12 4] /Group << /S /Transparency /I true >> >>",
+            "<< /S /Alpha >>",false,{},255u,true);
+        const std::array<double,3> backdrop{51,153,204},left{204,102,51},
+            right{51,204,102},yellow{255,255,0};
+        for(unsigned dpi:{72u,144u}) {
+            const size_t scale=dpi/72u,w=12u*scale,h=4u*scale;
+            CHECK(render(page,dpi,actual)==EXIT_SUCCESS);
+            for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+                const double lower=double(x)/scale,upper=double(x+1u)/scale,center=(lower+upper)/2.0;
+                const size_t column=x/scale;
+                double t=0.0,opacity=1.0;
+                if(column<4u) {
+                    t=std::clamp((center-1.0)/2.0,0.0,1.0);
+                    const double clipped=(std::min(upper,3.75)-std::max(lower,0.25))*scale;
+                    opacity=clipped/8.0;
+                } else if(column<8u) {
+                    t=std::clamp((center-5.0)/2.0,0.0,1.0);
+                    opacity=t/2.0;
+                } else if(column<10u) {
+                    t=std::clamp(center-8.5,0.0,1.0);
+                    opacity=t/2.0;
+                }
+                for(size_t c=0u;c<3u;++c) {
+                    double source=yellow[c];
+                    if(column<8u)source=left[c]*(1.0-t)+right[c]*t;
+                    if(column>=4u && column<8u) {
+                        const double wide_left=left[c]*257.0+(c==0u?1.0:0.0);
+                        source=std::round(wide_left*(1.0-t)+right[c]*257.0*t)/257.0;
+                    }
+                    if(column>=8u && column<10u)source=right[c];
+                    const double d=backdrop[c],product=d*source/255.0;
+                    const double mixed[]={product,d+source-product,
+                        d<127.5?2.0*d*source/255.0:255.0-2.0*(255.0-d)*(255.0-source)/255.0,
+                        std::min(d,source),std::max(d,source)};
+                    const auto expected=static_cast<unsigned>(column==11u || (column==10u && y>=2u*scale)?
+                        source+0.5:d+(mixed[mode]-d)*opacity+0.5);
+                    CHECK(actual[(y*w+x)*3u+c]==expected);
+                }
+            }
+        }
+    }
     for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f",
-        "/Multiply gs 1 0 0 1 0 0 cm /Plain Do",
-        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
-        "BT ET /Multiply gs /Plain Do"}) {
+        "/ColorBurn gs /Plain Do", "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj ET"}) {
         CHECK(render(create_alpha_group(unsupported,""),72u,actual,
             QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }

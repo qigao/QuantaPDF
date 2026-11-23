@@ -4988,6 +4988,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         size_t function_nodes=0u;
         const std::vector<stream_transfer_fixture>* streams=nullptr;
         bool screen=false;
+        bool image=false;
     } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
@@ -5014,13 +5015,16 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
          calculator_stitch_mask,"/DeviceGray",3u,&calculator_streams},
         {"/Half gs 0 0 2 3 re f /Quarter gs 3 0 -1.5 3 re f*",8u,true,false,
          nullptr,nullptr,0u,nullptr,true},
+        {"/Half gs 0 0 2 3 re f /Quarter gs 3 0 -1.5 3 re f*",8u,true,false,
+         nullptr,nullptr,0u,nullptr,true,true},
     };
     for(const auto& test:cases) {
         const bool luminosity=test.space!=nullptr;
         const auto form=luminosity?luminosity_form(test.space,test.knockout):
             test.knockout?alpha_knockout_form:alpha_form;
         const std::string paint=std::string("/Alpha gs /Precise gs ")+
-            (test.screen?"/Screen gs ":"")+"0 0 12 4 re f";
+            (test.screen?"/Screen gs ":"")+
+            (test.image?"q 12 0 0 4 0 0 cm /Plain Do Q":"0 0 12 4 re f");
         const auto sample=create_alpha_group(
             test.nodes==1u?paint:"q 0 0 6 4 re W n "+paint+" Q",
             test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>",
@@ -5123,7 +5127,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
             CHECK(render(ir,before)==QUANTAPDF_OK && render(copy,after)==QUANTAPDF_OK);
             CHECK(before.width==24u && before.height==8u && before.size==after.size &&
                   std::memcmp(before.pixels,after.pixels,before.size)==0);
-            if(test.screen)CHECK(before.pixels[(5u*24u+2u)*4u]<255u);
+            if(test.screen)CHECK(before.pixels[(5u*24u+2u)*4u+2u]<255u);
         }
         quantapdf_ir_dispose(&ir);
         for(size_t fail=1u;fail<=allocations;++fail) {

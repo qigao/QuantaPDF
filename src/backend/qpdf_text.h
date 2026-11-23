@@ -36,7 +36,7 @@ struct source_mixed_callbacks {
     quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id,quantapdf_composer_clip_id,double)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
         const std::array<double,6>&,const std::array<double,3>&,
-        quantapdf_composer_clip_id,quantapdf_composer_clip_id,double)=nullptr;
+        quantapdf_composer_clip_id,quantapdf_composer_clip_id,double,quantapdf_composer_blend_mode)=nullptr;
     quantapdf_status (*on_gs)(void*,QPDFObjectHandle,const std::array<double,6>&,
         quantapdf_composer_clip_id*,double*,quantapdf_composer_blend_mode*)=nullptr;
     /* Ordinary page paths retain one owner across BT. Operands are passed

@@ -920,12 +920,13 @@ quantapdf_status source_text_paint(void *user,clip_identity clip,clip_identity m
       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
 quantapdf_status source_image_paint(void *user,Obj image,
-    const matrix& ctm,const std::array<double,3>& fill,clip_identity clip,clip_identity mask,double opacity)
+    const matrix& ctm,const std::array<double,3>& fill,clip_identity clip,clip_identity mask,double opacity,
+    quantapdf_composer_blend_mode blend)
 {
     auto& source=*static_cast<admission*>(user);
     try {
         source.execute(image,ctm,fill);
-        source.scoped_paints.push_back({source.image_clip(image,clip,mask),opacity});
+        source.scoped_paints.push_back({source.image_clip(image,clip,mask),opacity,blend});
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(quantapdf::detail::image_stream_error const& e){return e.status;}
@@ -987,8 +988,10 @@ public:
                  [](void *u,clip_identity clip,clip_identity mask,double opacity){
                      return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip,mask,opacity);
                  },
-                 [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,clip_identity clip,clip_identity mask,double opacity){
-                     return source_image_paint(&static_cast<page_content_reader*>(u)->target,image,ctm,fill,clip,mask,opacity);
+                 [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,
+                    clip_identity clip,clip_identity mask,double opacity,quantapdf_composer_blend_mode mode){
+                     return source_image_paint(&static_cast<page_content_reader*>(u)->target,
+                         image,ctm,fill,clip,mask,opacity,mode);
                  },
                  text_graphics_state,text_path},outline_reader);
             admit(setup==QUANTAPDF_OK,setup);
@@ -1186,7 +1189,7 @@ public:
             admit(args.size()==1u && args[0].isName(),QUANTAPDF_ERROR_UNSUPPORTED);
             apply_gs(args[0],current,mask_active,fill_alpha,blend);
         } else if(op=="Do") {
-            admit(!in_mask_group && blend==QUANTAPDF_COMPOSER_BLEND_NORMAL,QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(!in_mask_group,QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -1196,7 +1199,7 @@ public:
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
             target.execute(named,current,quantapdf::detail::source_rgb_channels(fill_argb));
             QP_SOURCE_STAGE_ARM(6u);
-            target.scoped_paints.push_back({target.image_clip(named,clip_active,mask_active),fill_alpha});
+            target.scoped_paints.push_back({target.image_clip(named,clip_active,mask_active),fill_alpha,blend});
         } else if(op=="rg") {
             admit(args.size()==3u);
             uint32_t rgb=0u;
