@@ -373,6 +373,7 @@ struct graphics {
     quantapdf_composer_blend_mode blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
     int fill_space=1;
     bool color_supported=true;
+    bool text_knockout=true;
 };
 struct outline_paint_state {
     uint32_t argb;
@@ -484,13 +485,13 @@ struct projection {
         return UINT32_C(0xff000000)|(channel(g.fill[0])<<16u)|
             (channel(g.fill[1])<<8u)|channel(g.fill[2]);
     }
-    void begin_outline_paint(const outline_paint_state& state)
+    void begin_outline_paint(const outline_paint_state& state,bool merge_glyph_coverage)
     {
         if(source_mixed.on_text) {
             const auto result=source_mixed.on_text(source_mixed.user,state.clip,state.mask,state.opacity,state.blend);
             need(result==QUANTAPDF_OK,result);
         }
-        outline_paints.push_back({{},state.argb});
+        outline_paints.push_back({{},state.argb,merge_glyph_coverage});
     }
     void outline(font const& face,unsigned code,graphics const& g,matrix const& m)
     {
@@ -626,18 +627,20 @@ public:
     void begin_outline_show()
     {
         const outline_paint_state state{p.outline_color(g),g.clip_id,g.mask_clip_id,g.opacity,g.blend};
-        // Default text knockout applies across all shows in a BT/ET object.
+        // Text knockout applies across all shows in a BT/ET object.
         // Same-state glyphs share their coverage. Changes need a knockout group.
         if(knockout_paint) {
             supported(*knockout_paint==state);
             return;
         }
-        if(g.opacity!=1.0 || g.blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL) {
+        const bool merge_glyph_coverage=object_knockout &&
+            (g.opacity!=1.0 || g.blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL);
+        if(merge_glyph_coverage) {
             supported(!saw_show);
             knockout_paint=state;
         }
         saw_show=true;
-        p.begin_outline_paint(state);
+        p.begin_outline_paint(state,merge_glyph_coverage);
     }
     void show(Obj v,bool begin_paint=true) { inside(); need(v.isString());
         if(p.outline_mode && begin_paint)begin_outline_show();
@@ -707,7 +710,8 @@ public:
                     op,args,{g.ctm,0u,g.clip_id,g.mask_clip_id,g.opacity,g.blend},&after);
                 need(status==QUANTAPDF_OK,status);
             }
-            in_text=true;saw_show=false;knockout_paint.reset();text=line=identity;
+            in_text=true;object_knockout=g.text_knockout;
+            saw_show=false;knockout_paint.reset();text=line=identity;
         }
         else if(op=="ET") { count(0); inside(); in_text=false; }
         else if(op=="Tf") { count(2); g.face=p.get_font(resource("/Font",args[0])); g.size=number(args[1]); }
@@ -735,7 +739,9 @@ public:
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs" && p.outline_mode) {
             count(1);
-            const auto status=p.source_mixed.on_gs(p.source_mixed.user,args[0],g.ctm,&g.mask_clip_id,&g.opacity,&g.blend);
+            // A null destination disallows TK in the current text object.
+            const auto status=p.source_mixed.on_gs(p.source_mixed.user,args[0],g.ctm,
+                &g.mask_clip_id,&g.opacity,&g.blend,in_text?nullptr:&g.text_knockout);
             need(status==QUANTAPDF_OK,status);
         } else if(op=="gs") {
             count(1); Obj state=resource("/ExtGState",args[0]); need(state.isDictionary()); Obj f=state.getKey("/Font");
@@ -768,7 +774,7 @@ public:
     void handleEOF() override { need(args.empty() && stack.empty() && !in_text && marked==0u && !pending_clip); }
 private:
     projection& p; Obj resources; graphics g; size_t depth,marked=0; bool in_text=false;
-    bool saw_show=false;
+    bool saw_show=false,object_knockout=true;
     std::optional<outline_paint_state> knockout_paint;
     // Text/line matrices are not part of the saved graphics-state stack.
     matrix text=identity,line=identity;
@@ -869,6 +875,7 @@ graphics outline_graphics(source_text_seed const& seed)
 {
     graphics g;g.ctm=seed.ctm;g.clip_id=seed.clip_id;g.mask_clip_id=seed.mask_clip_id;
     g.fill=source_rgb_channels(seed.argb);g.opacity=seed.opacity;g.blend=seed.blend;
+    g.text_knockout=seed.text_knockout;
     return g;
 }
 template<class F> quantapdf_status outline_result(F f)

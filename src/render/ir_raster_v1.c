@@ -3547,8 +3547,7 @@ static quantapdf_status qp_ordered_scene(
             const quantapdf_composer_operation *op=&source->operations[i];
             if(op->kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
                 const size_t count=op->value.text_outlines.glyph_count;
-                if(count!=0u && (geometry->draws[draw].opacity!=1.0 ||
-                                 geometry->draws[draw].blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL)) {
+                if(count!=0u && op->value.text_outlines.merge_glyph_coverage) {
                     // Same-state glyphs knock out one another at each subpixel.
                     geometry->draws[draw].outline_count=count;
                 } else {

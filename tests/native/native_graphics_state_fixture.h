@@ -199,7 +199,8 @@ inline original create_alpha_group(const std::string& page_content, const std::s
         "/StrokeOnly << /CA 1 >> /Precise << /ca .123456789 >> /Bad << /ca 1.1 >> "
         "/Multiply << /BM /Multiply >> /Screen << /BM /Screen >> /Overlay << /BM /Overlay >> "
         "/Darken << /BM /Darken >> /Lighten << /BM /Lighten >> /Reset << /BM /Normal >> "
-        "/ColorBurn << /BM /ColorBurn >> >>");
+        "/ColorBurn << /BM /ColorBurn >> "
+        "/Separate << /TK false >> /Knockout << /TK true >> /BadTK << /TK 0 >> >>");
     states.getKey("/Alpha").replaceKey("/SMask",mask);
     resources.replaceKey("/ExtGState",states);
     auto color=Object::parse(

@@ -582,6 +582,60 @@ static int alpha_group_cases(const std::string& filename)
             }
         }
     }
+    const auto clipped_glyph=create_alpha_group(
+        "1.75 0 2.25 2.5 re W n BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+    for(unsigned dpi:{72u,144u}) {
+        CHECK(render(clipped_glyph,dpi,reference)==EXIT_SUCCESS);
+        CHECK(render(restored_text,dpi,unmasked)==EXIT_SUCCESS);
+        for(size_t mode=0u;mode<=std::size(blends);++mode) {
+            const char *blend_name=mode==std::size(blends)?"/Reset":blends[mode].name;
+            const auto page=create_alpha_group(
+                std::string(".2 .6 .8 rg 0 0 12 4 re f q /Separate gs /Half gs /Alpha gs "
+                            "1.75 0 2.25 4 re W n ")+blend_name+
+                " gs .8 .4 .2 rg BT /F 4 Tf 1 1 Td [<002d> 713 <002d>] TJ "
+                "/Inert gs /Screen gs 0 0 1 rg 1 0 0 1 1 1 Tm <002d> Tj ET Q "
+                "/Half gs 0 g BT /F 4 Tf 7 1 Td [<002d> 713 <002d>] TJ ET",
+                "/Half gs 0 0 12 4 re f",text_mask_form);
+            CHECK(render(page,dpi,actual)==EXIT_SUCCESS);
+            const unsigned base[]={51u,153u,204u},color[]={204u,102u,51u};
+            for(size_t i=0u;i<actual.size();++i) {
+                const size_t c=i%3u;
+                const unsigned samples=((255u-reference[i])*16u+127u)/255u;
+                const unsigned restored_samples=((255u-unmasked[i])*16u+127u)/255u;
+                unsigned tone=base[c];
+                for(unsigned glyph=0u;glyph<2u;++glyph) {
+                    const double d=tone,s=color[c],product=d*s/255.0;
+                    const double mixed[]={product,d+s-product,
+                        d<127.5?2.0*d*s/255.0:255.0-2.0*(255.0-d)*(255.0-s)/255.0,
+                        std::min(d,s),std::max(d,s),s};
+                    tone=static_cast<unsigned>(d+(mixed[mode]-d)*samples/64.0+0.5);
+                }
+                // Screen with blue has no red or green contribution, and sends blue to 255.
+                if(c==2u)tone=(tone*(32u-samples)+255u*samples+16u)/32u;
+                CHECK(actual[i]==(tone*(32u-restored_samples)+16u)/32u);
+            }
+        }
+    }
+
+    const auto show_glyph=[](const char *x,bool doubled) {
+        return std::string("BT /F 4 Tf ")+x+" 1 Td "+
+            (doubled?"[<002d> 713 <002d>] TJ ET ":"<002d> Tj ET ");
+    };
+    const auto glyph_scope=create_alpha_group(
+        "q /Separate gs /Half gs "+show_glyph("1",true)+
+        "q /Knockout gs "+show_glyph("4",true)+"Q "+show_glyph("7",true)+
+        "Q /Half gs "+show_glyph("9.5",true),"");
+    const auto independent_scope=create_alpha_group(
+        "/Half gs "+show_glyph("1",false)+show_glyph("1",false)+show_glyph("4",false)+
+        show_glyph("7",false)+show_glyph("7",false)+show_glyph("9.5",false),"");
+    CHECK(render(glyph_scope,144u,actual)==EXIT_SUCCESS);
+    CHECK(render(independent_scope,144u,reference)==EXIT_SUCCESS && actual==reference);
+    for(const char *malformed:{"/BadTK gs","BT ET /BadTK gs",
+        "BT /Separate gs ET","/Separate gs BT /Knockout gs ET"}) {
+        CHECK(render(create_alpha_group(malformed,""),72u,actual,
+            QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    }
+
     for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f","/ColorBurn gs /Plain Do",
         "/ColorBurn gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
         "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj /Reset gs <002d> Tj ET",

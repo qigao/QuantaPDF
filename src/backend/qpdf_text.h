@@ -13,6 +13,7 @@ namespace quantapdf::detail {
 struct source_outline_glyph { std::vector<quantapdf_composer_path_command> commands; };
 struct source_outline_paint {
     std::vector<source_outline_glyph> glyphs; uint32_t argb;
+    bool merge_glyph_coverage;
 };
 inline std::array<double,3> source_rgb_channels(uint32_t argb)
 {
@@ -28,6 +29,7 @@ struct source_text_seed {
     quantapdf_composer_clip_id clip_id=0u,mask_clip_id=0u;
     double opacity=1.0;
     quantapdf_composer_blend_mode blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+    bool text_knockout=true;
 };
 /* Page-scene callbacks on the original qpdf token stream. Fonts and
  * contours use the existing interpreter; qpdf/font owners do not escape. */
@@ -39,7 +41,7 @@ struct source_mixed_callbacks {
         const std::array<double,6>&,const std::array<double,3>&,
         quantapdf_composer_clip_id,quantapdf_composer_clip_id,double,quantapdf_composer_blend_mode)=nullptr;
     quantapdf_status (*on_gs)(void*,QPDFObjectHandle,const std::array<double,6>&,
-        quantapdf_composer_clip_id*,double*,quantapdf_composer_blend_mode*)=nullptr;
+        quantapdf_composer_clip_id*,double*,quantapdf_composer_blend_mode*,bool*)=nullptr;
     /* Ordinary page paths retain one owner across BT. Operands are passed
      * directly once; the page reader freezes the supplied current state and
      * checks that BT does not enter an unfinished path object. */
