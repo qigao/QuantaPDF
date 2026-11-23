@@ -4987,6 +4987,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const char *space=nullptr;
         size_t function_nodes=0u;
         const std::vector<stream_transfer_fixture>* streams=nullptr;
+        bool screen=false;
     } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
@@ -5011,14 +5012,17 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
          sampled_stitch_mask,"/DeviceGray",3u,&sampled_streams},
         {".125 g 0 0 2 2.5 re f .75 g 2 0 2 2.5 re f",8u,false,false,
          calculator_stitch_mask,"/DeviceGray",3u,&calculator_streams},
+        {"/Half gs 0 0 2 3 re f /Quarter gs 3 0 -1.5 3 re f*",8u,true,false,
+         nullptr,nullptr,0u,nullptr,true},
     };
     for(const auto& test:cases) {
         const bool luminosity=test.space!=nullptr;
         const auto form=luminosity?luminosity_form(test.space,test.knockout):
             test.knockout?alpha_knockout_form:alpha_form;
+        const std::string paint=std::string("/Alpha gs /Precise gs ")+
+            (test.screen?"/Screen gs ":"")+"0 0 12 4 re f";
         const auto sample=create_alpha_group(
-            test.nodes==1u?"/Alpha gs /Precise gs 0 0 12 4 re f":
-                "q 0 0 6 4 re W n /Alpha gs /Precise gs 0 0 12 4 re f Q",
+            test.nodes==1u?paint:"q 0 0 6 4 re W n "+paint+" Q",
             test.content,form.c_str(),test.mask!=nullptr?test.mask:"<< /S /Alpha /TR /Identity >>",
             false,test.streams!=nullptr?*test.streams:no_streams);
         auto caps=defaults;
@@ -5041,7 +5045,9 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         CHECK(status==QUANTAPDF_OK && allocations>0u && ir.operation_count==1u &&
               ir.resources.clip_count==expected_nodes && ir.resources.graphics_state_count==1u &&
               ir.resources.graphics_states[0].clip_id==expected_nodes &&
-              ir.resources.graphics_states[0].fill_alpha==.123456789);
+              ir.resources.graphics_states[0].fill_alpha==.123456789 &&
+              ir.resources.graphics_states[0].blend_mode==
+                  (test.screen?QUANTAPDF_COMPOSER_BLEND_SCREEN:QUANTAPDF_COMPOSER_BLEND_NORMAL));
         if(test.nodes>5u || luminosity || test.function_nodes!=0u) {
             const auto mask_group=[](const quantapdf_ir& source) {
                 const auto *begin=source.resources.clips;
@@ -5069,9 +5075,10 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
             if(reopened_status!=QUANTAPDF_OK)
                 std::fprintf(stderr,"alpha group roundtrip Source status=%d\n",int(reopened_status));
             CHECK(reopened_status==QUANTAPDF_OK);
-            CHECK(copy.operation_count==2u);
+            CHECK(copy.operation_count==1u);
             CHECK(copy.resources.graphics_state_count==1u &&
-                  copy.resources.graphics_states[0].fill_alpha==ir.resources.graphics_states[0].fill_alpha);
+                  copy.resources.graphics_states[0].fill_alpha==ir.resources.graphics_states[0].fill_alpha &&
+                  copy.resources.graphics_states[0].blend_mode==ir.resources.graphics_states[0].blend_mode);
             const auto *copied_group=mask_group(copy);
             CHECK(copied_group!=copy.resources.clips+copy.resources.clip_count &&
                   copied_group->member_count==group->member_count && copied_group->knockout==group->knockout &&
@@ -5116,6 +5123,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
             CHECK(render(ir,before)==QUANTAPDF_OK && render(copy,after)==QUANTAPDF_OK);
             CHECK(before.width==24u && before.height==8u && before.size==after.size &&
                   std::memcmp(before.pixels,after.pixels,before.size)==0);
+            if(test.screen)CHECK(before.pixels[(5u*24u+2u)*4u]<255u);
         }
         quantapdf_ir_dispose(&ir);
         for(size_t fail=1u;fail<=allocations;++fail) {

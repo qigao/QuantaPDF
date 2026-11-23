@@ -454,6 +454,58 @@ static int alpha_group_cases(const std::string& filename)
     }
     CHECK(render(create_alpha_group("/Bad gs 0 0 12 4 re f",""),
         72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    const struct {
+        const char *name;
+        std::array<double,3> blended;
+        std::array<unsigned,3> partial_backdrop;
+    } blends[]={
+        {"/Multiply",{40.8,61.2,40.8},{137,142,138}},
+        {"/Screen",{214.2,193.8,214.2},{180,176,181}},
+        {"/Overlay",{81.6,132.6,173.4},{147,160,171}},
+        {"/Darken",{51,102,51},{140,153,140}},
+        {"/Lighten",{204,153,204},{178,165,178}},
+    };
+    for(const auto& mode:blends) {
+        const std::string gs=std::string(mode.name)+" gs ";
+        const auto page=create_alpha_group(
+            ".2 .6 .8 rg 0 0 8 4 re f q "+gs+".8 .4 .2 rg 8 0 1 4 re f Q "
+            "q "+gs+"BT ET .8 .4 .2 rg /Half gs 0 0 1 4 re f "
+            "q /Reset gs 1 0 1 4 re f Q /StrokeOnly gs 2 0 1 4 re f* "
+            "q 3.25 0 1 4 re W n /Alpha gs 3 0 2 4 re f Q Q "
+            ".8 .4 .2 rg 5 0 1 4 re f "
+            "q /Half gs .2 .6 .8 rg 9 0 1 4 re f "+gs+".8 .4 .2 rg 9 0 1 4 re f Q",
+            "/Quarter gs 0 0 12 4 re f",
+            "<< /Subtype /Form /BBox [0 0 12 4] /Group << /S /Transparency /I true >> >>");
+        constexpr std::array<unsigned,3> base{51,153,204},source{204,102,51};
+        for(unsigned dpi:{72u,144u}) {
+            const size_t scale=dpi/72u,w=12u*scale,h=4u*scale;
+            CHECK(render(page,dpi,actual)==EXIT_SUCCESS);
+            for(size_t y=0u;y<h;++y)for(size_t x=0u;x<w;++x) {
+                const size_t column=x/scale;
+                const double left=double(x)/scale,right=double(x+1u)/scale;
+                const double clipped=std::max(0.0,std::min(right,4.25)-std::max(left,3.25))*scale;
+                const double alpha=(column==0u || column==2u)?0.5:clipped*0.125;
+                for(size_t c=0u;c<3u;++c) {
+                    unsigned expected=255u;
+                    if(column<8u)expected=static_cast<unsigned>(
+                        (1.0-alpha)*base[c]+alpha*mode.blended[c]+0.5);
+                    if(column==1u)expected=128u;
+                    if(column==5u || column==8u)expected=source[c];
+                    if(column==9u)expected=mode.partial_backdrop[c];
+                    CHECK(actual[(y*w+x)*3u+c]==expected);
+                }
+            }
+        }
+    }
+    for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f",
+        "/Multiply gs 1 0 0 1 0 0 cm /Plain Do",
+        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
+        "BT ET /Multiply gs /Plain Do"}) {
+        CHECK(render(create_alpha_group(unsupported,""),72u,actual,
+            QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    }
+    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",
+        "/Multiply gs 0 0 2 2 re f"),72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     for(const char *unsupported : {"/Alpha gs", "/Bad gs 0 0 1 1 re f", "0 0 1 1 re S"}) {
         CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",unsupported),
             72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);

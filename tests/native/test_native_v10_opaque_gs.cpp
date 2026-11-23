@@ -207,7 +207,7 @@ static const scenario cases[]={
     {"gs-stroke-opacity",opaque_group,"<< /CA 0.5 /ca 1 >>",
         black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
     {"gs-multiply",opaque_group,"<< /CA 1 /ca 1 /BM /Multiply >>",
-        black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
+        black_paint,QUANTAPDF_OK,false},
     {"gs-soft-mask",opaque_group,
         "<< /CA 1 /ca 1 /SMask << /S /Alpha >> >>",
         black_paint,QUANTAPDF_ERROR_UNSUPPORTED,false},
@@ -314,9 +314,9 @@ static int run(const std::string& original)
     CHECK(data!=nullptr && count==original_rgb.size() &&
           std::memcmp(data,original_rgb.data(),count)==0);
     quantapdf_drop_bitmap(retained);
-    CHECK(positives==7u && refusals==17u);
+    CHECK(positives==8u && refusals==16u);
     std::printf("Native original opaque gs/group: 1 real external solid-black, "
-                "5 generated black positives, 1 half-opacity gray, 17 exact atomic refusals\n");
+                "6 generated black positives, 1 half-opacity gray, 16 exact atomic refusals\n");
     return EXIT_SUCCESS;
 }
 #include "native_ttf_public_cases.h"

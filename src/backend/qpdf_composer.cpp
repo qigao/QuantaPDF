@@ -2,6 +2,7 @@
 #include "qpdf_composer.h"
 
 #include "ir/ir.h"
+#include "resource/composer_blend_names.h"
 #include "composer_text_layout.h"
 #include "ttf_font.h"
 
@@ -112,20 +113,8 @@ double canonical_zero(double value)
 char const* blend_mode_name(
     quantapdf_composer_blend_mode blend_mode)
 {
-    switch (blend_mode) {
-    case QUANTAPDF_COMPOSER_BLEND_NORMAL:
-        return "/Normal";
-    case QUANTAPDF_COMPOSER_BLEND_MULTIPLY:
-        return "/Multiply";
-    case QUANTAPDF_COMPOSER_BLEND_SCREEN:
-        return "/Screen";
-    case QUANTAPDF_COMPOSER_BLEND_OVERLAY:
-        return "/Overlay";
-    case QUANTAPDF_COMPOSER_BLEND_DARKEN:
-        return "/Darken";
-    case QUANTAPDF_COMPOSER_BLEND_LIGHTEN:
-        return "/Lighten";
-    }
+    for (const auto& entry : quantapdf_pdf_blend_names)
+        if (entry.mode == blend_mode) return entry.name;
     throw std::logic_error("invalid Composer blend mode");
 }
 
@@ -1833,7 +1822,8 @@ std::string page_content(
     double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
     double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
     double const blue = (page.background_argb & 0xffu) / 255.0;
-    if (!page.suppress_background) {
+    // The Source canvas has a display backdrop, outside the PDF page group.
+    if (!page.suppress_background && ir->source_canvas.ascii[0] == '\0') {
         content += "q " + number(red) + " " + number(green) + " " +
             number(blue) + " rg 0 0 " + number(page.width_points) + " " +
             number(page.height_points) + " re f Q\n";

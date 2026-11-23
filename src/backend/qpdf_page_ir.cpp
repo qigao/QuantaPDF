@@ -2,6 +2,7 @@
 #include "backend/qpdf_text.h"
 #include "backend/qpdf_document_internal.h"
 #include "backend/qpdf_image_stream.h"
+#include "resource/composer_blend_names.h"
 #include "resource/mask_calculator.h"
 
 #include <qpdf/QPDF.hh>
@@ -16,6 +17,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -23,6 +25,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -584,7 +587,7 @@ struct admission {
     size_t source_pixels=0,drawn_pixels=0;
     size_t content_bytes=0;
     size_t mask_transfer_bytes_left=mask_transfer_data_bytes;
-    bool has_mask_groups=false,has_paint_opacity=false;
+    bool has_mask_groups=false,has_paint_transparency=false;
     std::vector<staged_image> draws;
     std::vector<staged_path> painted_paths;
     std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
@@ -596,6 +599,11 @@ struct admission {
     struct paint_state {
         clip_identity clip=0u;
         double opacity=1.0;
+        quantapdf_composer_blend_mode blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        bool is_default() const
+        {
+            return clip==0u && opacity==1.0 && blend==QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        }
     };
     std::vector<paint_state> scoped_paints;
     clip_identity last_clip=0u,last_mask=0u,last_paint_clip=0u;
@@ -675,7 +683,7 @@ struct admission {
                     bool is_stroke=false,uint32_t stroke_rgb=UINT32_C(0xff000000),
                     float width=1.0f)
     {
-        admit(!is_stroke || (!has_mask_groups && !has_paint_opacity),QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(!is_stroke || (!has_mask_groups && !has_paint_transparency),QUANTAPDF_ERROR_UNSUPPORTED);
         const bool three_path=three_branch_candidate && draws.empty() &&
             (is_stroke ?
                 (painted_paths.empty() && three_branch_count==1u) :
@@ -836,7 +844,8 @@ struct admission {
     }
 };
 
-Obj read_source_gs_mask(Obj resources,Obj name,double& fill_alpha)
+Obj read_source_gs_mask(Obj resources,Obj name,double& fill_alpha,
+    quantapdf_composer_blend_mode& blend)
 {
     admit(resources.isDictionary() && name.isName(),
           QUANTAPDF_ERROR_FORMAT);
@@ -874,7 +883,10 @@ Obj read_source_gs_mask(Obj resources,Obj name,double& fill_alpha)
     Obj bm=entry.getKey("/BM");
     if(!bm.isNull()) {
         admit(bm.isName(),QUANTAPDF_ERROR_FORMAT);
-        admit(bm.getName()=="/Normal",QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto it=std::find_if(std::begin(quantapdf_pdf_blend_names),std::end(quantapdf_pdf_blend_names),
+            [&](const auto& entry){return bm.isNameAndEquals(entry.name);});
+        admit(it!=std::end(quantapdf_pdf_blend_names),QUANTAPDF_ERROR_UNSUPPORTED);
+        blend=it->mode;
     }
     Obj smask=entry.getKey("/SMask");
     admit(smask.isNull() || smask.isNameAndEquals("/None") || smask.isDictionary(),
@@ -929,6 +941,7 @@ class page_content_reader final : public Obj::ParserCallbacks {
         uint32_t fill,stroke;
         clip_identity clip,mask;
         double width,miter,fill_alpha,fill_luminosity;
+        quantapdf_composer_blend_mode blend;
         int cap,join;
         bool default_dash,rgb_exact;
     };
@@ -963,12 +976,12 @@ public:
             std::vector<quantapdf::detail::source_text_seed> scoped_saved;
             scoped_saved.reserve(stack.size());
             for(const auto& state:stack) {
-                scoped_saved.push_back({state.ctm,state.fill,state.clip,state.mask,state.fill_alpha});
+                scoped_saved.push_back({state.ctm,state.fill,state.clip,state.mask,state.fill_alpha,state.blend});
             }
             const auto setup=quantapdf::detail::make_source_text_outlines(
                 target.resources,target.viewport_left,target.viewport_bottom,target.exact_page_h,
                 target.text_outline_swap_axes,
-                {current,fill_argb,clip_active,mask_active,fill_alpha},
+                {current,fill_argb,clip_active,mask_active,fill_alpha,blend},
                 scoped_saved,
                 {this,
                  [](void *u,clip_identity clip,clip_identity mask,double opacity){
@@ -1082,7 +1095,7 @@ public:
             saw_saved_scope=true;
             QP_SOURCE_STACK_GROW(stack);
             stack.push_back({current,fill_argb,stroke_argb,clip_active,mask_active,
-                stroke_width,stroke_miter,fill_alpha,fill_luminosity,stroke_cap,stroke_join,
+                stroke_width,stroke_miter,fill_alpha,fill_luminosity,blend,stroke_cap,stroke_join,
                 stroke_default_dash,stroke_rgb_exact});
         } else if(op=="Q") {
             admit(args.empty() && !stack.empty());
@@ -1102,7 +1115,7 @@ public:
             const bool was_clipped=clip_active!=0u;
             current=saved.ctm;fill_argb=saved.fill;clip_active=saved.clip;mask_active=saved.mask;
             stroke_argb=saved.stroke;stroke_width=saved.width;stroke_miter=saved.miter;
-            fill_alpha=saved.fill_alpha;fill_luminosity=saved.fill_luminosity;
+            fill_alpha=saved.fill_alpha;fill_luminosity=saved.fill_luminosity;blend=saved.blend;
             stroke_cap=saved.cap;stroke_join=saved.join;
             stroke_default_dash=saved.default_dash;stroke_rgb_exact=saved.rgb_exact;
             if(target.clip_completed && was_clipped && !clip_active)
@@ -1129,7 +1142,7 @@ public:
             /* An exact page-height negative-Y authoring CTM selects
              * only the *candidate*. It does NOT make a page paintable;
              * the complete original 3GS/7Clip shape is still mandatory. */
-            if(!in_mask_group && !target.has_mask_groups && !target.has_paint_opacity &&
+            if(!in_mask_group && !target.has_mask_groups && !target.has_paint_transparency &&
                !target.three_branch_candidate && !target.clip_completed &&
                target.order.empty() && target.draws.empty() &&
                target.exact_page_w==600.0 &&
@@ -1171,9 +1184,9 @@ public:
             }
         } else if(op=="gs") {
             admit(args.size()==1u && args[0].isName(),QUANTAPDF_ERROR_UNSUPPORTED);
-            apply_gs(args[0],current,mask_active,fill_alpha);
+            apply_gs(args[0],current,mask_active,fill_alpha,blend);
         } else if(op=="Do") {
-            admit(!in_mask_group,QUANTAPDF_ERROR_UNSUPPORTED);
+            admit(!in_mask_group && blend==QUANTAPDF_COMPOSER_BLEND_NORMAL,QUANTAPDF_ERROR_UNSUPPORTED);
             admit(args.size()==1u && args[0].isName() &&
                   pending_path.empty() && !clip_pending);
             admit(target.resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
@@ -1268,7 +1281,7 @@ public:
         try {
             reader.current=state.ctm;reader.fill_argb=state.argb;
             reader.clip_active=state.clip_id;reader.mask_active=state.mask_clip_id;
-            reader.fill_alpha=state.opacity;
+            reader.fill_alpha=state.opacity;reader.blend=state.blend;
             reader.path_operator(op,operands);
             *after=reader.clip_active;
             return QUANTAPDF_OK;
@@ -1462,7 +1475,7 @@ public:
                           QUANTAPDF_COMPOSER_FILL_EVEN_ODD);
             target.painted_paths.back().luminosity=fill_luminosity;
             QP_SOURCE_STAGE_ARM(7u);
-            target.scoped_paints.push_back({target.paint_clip(clip_active,mask_active),fill_alpha});
+            target.scoped_paints.push_back({target.paint_clip(clip_active,mask_active),fill_alpha,blend});
             clear_path();
             }
         } else if((op=="W" || op=="W*")) {
@@ -1590,12 +1603,13 @@ private:
     page_content_reader(admission& group,size_t& bytes,const matrix& ctm) :
         target(group),content_bytes(bytes),in_mask_group(true),current(ctm) {}
 
-    void apply_gs(Obj name,const matrix& ctm,clip_identity& active,double& opacity)
+    void apply_gs(Obj name,const matrix& ctm,clip_identity& active,double& opacity,
+        quantapdf_composer_blend_mode& mode)
     {
-        Obj mask=read_source_gs_mask(target.resources,name,opacity);
-        if(!in_mask_group && opacity!=1.0) {
-            admit(target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
-            target.has_paint_opacity=true;
+        Obj mask=read_source_gs_mask(target.resources,name,opacity,mode);
+        if(mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL || (!in_mask_group && opacity!=1.0)) {
+            admit(!in_mask_group && target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
+            target.has_paint_transparency=true;
         }
         if(mask.isNull())return;
         if(mask.isNameAndEquals("/None")) {
@@ -1608,10 +1622,10 @@ private:
     }
 
     static quantapdf_status text_graphics_state(void *user,Obj name,const matrix& ctm,
-        clip_identity *mask,double *opacity)
+        clip_identity *mask,double *opacity,quantapdf_composer_blend_mode *blend)
     {
         try {
-            static_cast<page_content_reader*>(user)->apply_gs(name,ctm,*mask,*opacity);
+            static_cast<page_content_reader*>(user)->apply_gs(name,ctm,*mask,*opacity,*blend);
             return QUANTAPDF_OK;
         } catch(rejected const& e){return e.status;}
           catch(quantapdf::detail::image_stream_error const& e){return e.status;}
@@ -1996,6 +2010,7 @@ private:
     uint32_t fill_argb=UINT32_C(0xff000000);
     uint32_t stroke_argb=UINT32_C(0xff000000);
     double stroke_width=1.0,stroke_miter=10.0,fill_alpha=1.0,fill_luminosity=0.0;
+    quantapdf_composer_blend_mode blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
     int stroke_cap=0,stroke_join=0;
     bool stroke_default_dash=true,stroke_rgb_exact=true;
     bool saw_saved_scope=false;
@@ -2369,11 +2384,11 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
         const size_t count=source.clips.size();
         std::vector<unsigned char> needed(count,0u);
         std::vector<clip_identity> leaves(count,0u),roots(count,0u);
-        std::map<std::pair<clip_identity,double>,quantapdf_composer_graphics_state_id> states;
+        std::map<std::tuple<clip_identity,double,quantapdf_composer_blend_mode>,
+            quantapdf_composer_graphics_state_id> states;
         for(const auto& paint:source.scoped_paints) {
             if(paint.clip!=0u)needed[paint.clip-1u]=1u;
-            if(paint.clip!=0u || paint.opacity!=1.0)
-                states.try_emplace({paint.clip,paint.opacity},0u);
+            if(!paint.is_default())states.try_emplace({paint.clip,paint.opacity,paint.blend},0u);
         }
         if(states.empty())return ir;
         // Definitions only refer to earlier roots, so one reverse pass
@@ -2473,17 +2488,15 @@ quantapdf_ir materialize_ordered_scene(const admission& source)
         }
         size_t next_state=0u;
         for(auto& [key,id]:states) {
-            const auto& [clip,opacity]=key;
+            const auto& [clip,opacity,blend]=key;
             auto& state=ir.resources.graphics_states[next_state++];
             id=static_cast<quantapdf_composer_graphics_state_id>(next_state);
             state.clip_id=clip==0u?0u:roots[clip-1u];
-            state.fill_alpha=opacity;state.stroke_alpha=1.0f;
-            state.blend_mode=QUANTAPDF_COMPOSER_BLEND_NORMAL;
+            state.fill_alpha=opacity;state.stroke_alpha=1.0f;state.blend_mode=blend;
         }
         for(size_t i=0u;i<source.order.size();++i) {
             auto& op=ir.operations[i];const auto& paint=source.scoped_paints[i];
-            const auto state=paint.clip==0u && paint.opacity==1.0?
-                0u:states.at({paint.clip,paint.opacity});
+            const auto state=paint.is_default()?0u:states.at({paint.clip,paint.opacity,paint.blend});
             op.graphics_state_id=state;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_PATH)op.value.path.options.graphics_state_id=state;
             if(op.kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE)op.value.image.options.graphics_state_id=state;

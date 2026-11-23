@@ -369,6 +369,7 @@ struct graphics {
     double size=0, character=0, word=0, scale=1, leading=0, rise=0;
     std::array<double,3> fill={0,0,0};
     double opacity=1;
+    quantapdf_composer_blend_mode blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
     int fill_space=1;
     bool color_supported=true;
 };
@@ -477,6 +478,7 @@ struct projection {
     }
     void begin_outline_paint(graphics const& g)
     {
+        supported(g.blend==QUANTAPDF_COMPOSER_BLEND_NORMAL);
         const auto argb=outline_color(g);
         if(source_mixed.on_text) {
             const auto result=source_mixed.on_text(source_mixed.user,g.clip_id,g.mask_clip_id,g.opacity);
@@ -669,7 +671,7 @@ public:
             const uint32_t argb=(op=="f" || op=="f*")?p.outline_color(g):0u;
             quantapdf_composer_clip_id after=0u;
             const auto status=p.source_mixed.on_path(p.source_mixed.user,
-                op,args,{g.ctm,argb,g.clip_id,g.mask_clip_id,g.opacity},&after);
+                op,args,{g.ctm,argb,g.clip_id,g.mask_clip_id,g.opacity,g.blend},&after);
             need(status==QUANTAPDF_OK,status);
             g.clip_id=after;
             pending_clip=op=="W" || op=="W*";
@@ -689,7 +691,7 @@ public:
             if(p.outline_mode) {
                 quantapdf_composer_clip_id after=0u;
                 const auto status=p.source_mixed.on_path(p.source_mixed.user,
-                    op,args,{g.ctm,0u,g.clip_id,g.mask_clip_id,g.opacity},&after);
+                    op,args,{g.ctm,0u,g.clip_id,g.mask_clip_id,g.opacity,g.blend},&after);
                 need(status==QUANTAPDF_OK,status);
             }
             in_text=true;saw_show=translucent_show=false;text=line=identity;
@@ -713,13 +715,14 @@ public:
             count(op=="'"?1u:3u); if(op=="\"") { g.word=number(args[0]); g.character=number(args[1]); } move(0,-g.leading); show(args.back());
         } else if(op=="Do" && p.outline_mode) {
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
+            supported(g.blend==QUANTAPDF_COMPOSER_BLEND_NORMAL);
             const Obj image=resource("/XObject",args[0]);
             const auto result=p.source_mixed.on_image(p.source_mixed.user,image,g.ctm,g.fill,g.clip_id,g.mask_clip_id,g.opacity);
             need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs" && p.outline_mode) {
             count(1);
-            const auto status=p.source_mixed.on_gs(p.source_mixed.user,args[0],g.ctm,&g.mask_clip_id,&g.opacity);
+            const auto status=p.source_mixed.on_gs(p.source_mixed.user,args[0],g.ctm,&g.mask_clip_id,&g.opacity,&g.blend);
             need(status==QUANTAPDF_OK,status);
         } else if(op=="gs") {
             count(1); Obj state=resource("/ExtGState",args[0]); need(state.isDictionary()); Obj f=state.getKey("/Font");
@@ -851,7 +854,7 @@ namespace {
 graphics outline_graphics(source_text_seed const& seed)
 {
     graphics g;g.ctm=seed.ctm;g.clip_id=seed.clip_id;g.mask_clip_id=seed.mask_clip_id;
-    g.fill=source_rgb_channels(seed.argb);g.opacity=seed.opacity;
+    g.fill=source_rgb_channels(seed.argb);g.opacity=seed.opacity;g.blend=seed.blend;
     return g;
 }
 template<class F> quantapdf_status outline_result(F f)

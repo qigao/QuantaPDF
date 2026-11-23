@@ -43,6 +43,7 @@ typedef struct qp_raster_draw {
     double opacity;
     uint32_t color;
     quantapdf_composer_fill_rule rule;
+    quantapdf_composer_blend_mode blend;
     int one_pixel_stroke;
     /* DEVICE-space half-width: all old one-pixel stroke users remain
      * exactly 0.5; only a separate fractional opt-in can change it.
@@ -626,7 +627,7 @@ typedef struct qp_compiled_geometry {
     const quantapdf_composer_path_command *exact_clip_commands;
     uint32_t background;
     float exact_stroke_width;
-    int suppress_background,has_plan,mode;
+    int suppress_background,has_blends,has_plan,mode;
     int bounded_clipped_fill,bounded_clipped_stroke,bounded_curved_stroke;
     qp_raster_draw *draws;
     qp_raster_draw *scene_clips;
@@ -858,6 +859,51 @@ static void qp_blend_covered_pixel(unsigned char *dst, uint32_t argb, double cov
     }
 }
 
+/* Table 136 in ISO 32000-1, with 8-bit inputs and a scale of 255^2. */
+static unsigned qp_blend_channel(
+    quantapdf_composer_blend_mode mode, unsigned backdrop, unsigned source)
+{
+    const unsigned product=backdrop*source;
+    switch(mode) {
+    case QUANTAPDF_COMPOSER_BLEND_MULTIPLY:
+        return product;
+    case QUANTAPDF_COMPOSER_BLEND_SCREEN:
+        return (backdrop+source)*255u-product;
+    case QUANTAPDF_COMPOSER_BLEND_OVERLAY:
+        return backdrop<=127u ? 2u*product : 65025u-2u*(255u-backdrop)*(255u-source);
+    case QUANTAPDF_COMPOSER_BLEND_DARKEN:
+        return (backdrop<source?backdrop:source)*255u;
+    case QUANTAPDF_COMPOSER_BLEND_LIGHTEN:
+        return (backdrop>source?backdrop:source)*255u;
+    case QUANTAPDF_COMPOSER_BLEND_NORMAL:
+        return source*255u;
+    }
+    abort();
+}
+
+static void qp_blend_fill_pixel(
+    unsigned char *dst, const qp_raster_draw *draw, double coverage)
+{
+    const double covered=coverage*draw->opacity;
+    if(draw->blend==QUANTAPDF_COMPOSER_BLEND_NORMAL || dst[3]==0u) {
+        qp_blend_covered_pixel(dst,draw->color,covered);
+        return;
+    }
+    if(covered==0.0)return;
+    const double source=covered/QP_TOTAL_SAMPLES;
+    const double backdrop=dst[3]/255.0;
+    const double keep=backdrop*(1.0-source);
+    const double blend=backdrop*source;
+    const double unblended=(1.0-backdrop)*source;
+    const double alpha=keep+source;
+    for(unsigned c=0u;c<3u;++c) {
+        const unsigned color=(draw->color>>(16u-8u*c))&255u;
+        const double mixed=qp_blend_channel(draw->blend,dst[c],color)/255.0;
+        dst[c]=(unsigned char)((keep*dst[c]+blend*mixed+unblended*color)/alpha+0.5);
+    }
+    dst[3]=(unsigned char)(255.0*alpha+0.5);
+}
+
 static unsigned qp_image_sample(const unsigned char *pixel, size_t channel, int wide)
 {
     if (!wide) return pixel[channel];
@@ -1078,7 +1124,8 @@ static int qp_scene_resources(const quantapdf_ir *ir,size_t *leaf_count)
         const quantapdf_composer_graphics_state *g=&r->graphics_states[i];
         if(g->clip_id>r->clip_count || g->soft_mask_id!=0u ||
            !(g->fill_alpha>=0.0 && g->fill_alpha<=1.0) ||
-           g->stroke_alpha!=1.0f || g->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL)return 0;
+           g->stroke_alpha!=1.0f || g->blend_mode<QUANTAPDF_COMPOSER_BLEND_NORMAL ||
+           g->blend_mode>QUANTAPDF_COMPOSER_BLEND_LIGHTEN)return 0;
     }
     return 1;
 }
@@ -2178,6 +2225,7 @@ static quantapdf_status qp_geometry_compile(
         const quantapdf_composer_operation *op = &ir->operations[i];
         quantapdf_composer_operation unbound;
         draws[draw_count].opacity=1.0;
+        draws[draw_count].blend=QUANTAPDF_COMPOSER_BLEND_NORMAL;
         draws[draw_count].clip_mask=clipped_text?(1u<<(unsigned)clip_count)-1u:0u;
         if(ordered_scene && !clipped_text) {
             const size_t state=(size_t)op->graphics_state_id;
@@ -2185,6 +2233,8 @@ static quantapdf_status qp_geometry_compile(
                 const quantapdf_composer_graphics_state *gs=&ir->resources.graphics_states[state-1u];
                 const size_t node=(size_t)gs->clip_id;
                 draws[draw_count].opacity=gs->fill_alpha;
+                draws[draw_count].blend=gs->blend_mode;
+                g->has_blends|=gs->blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL;
                 if(node!=0u) {
                     draws[draw_count].clip_bits=scene_masks+(node-1u)*clip_words;
                     if(scene_groups!=NULL && scene_groups[node-1u].id!=0u)
@@ -2502,7 +2552,7 @@ static quantapdf_status qp_geometry_sample(
     }
     pixels = (unsigned char *)qp_exact_malloc(pixel_bytes,exact_native,ledger,&status);
     if (pixels == NULL)goto cleanup;
-    if (g->suppress_background)
+    if (g->suppress_background || g->has_blends)
         memset(pixels, 0, pixels_count * 4u);
     else
         qp_background(pixels, pixels_count, g->background);
@@ -2633,7 +2683,7 @@ static quantapdf_status qp_geometry_sample(
                         }
                         covered=nx*ny;
                     }
-                    qp_blend_covered_pixel(pixels+4u*(y*width+x),draw->color,covered*draw->opacity);
+                    qp_blend_fill_pixel(pixels+4u*(y*width+x),draw,covered);
                 }
             continue;
         }
@@ -2705,12 +2755,21 @@ static quantapdf_status qp_geometry_sample(
                         covered += (unsigned)visible;
                     }
                 }
-                qp_blend_covered_pixel(pixels + 4u * (y * width + x),
-                                       draw->color, covered*draw->opacity);
+                qp_blend_fill_pixel(pixels+4u*(y*width+x),draw,covered);
             }
         }
     }
 
+    if(g->has_blends) {
+        const unsigned backdrop[3]={(g->background>>16u)&255u,(g->background>>8u)&255u,g->background&255u};
+        for(size_t k=0u;k<pixels_count;++k) {
+            unsigned char *p=pixels+4u*k;
+            const unsigned alpha=p[3];
+            for(size_t c=0u;c<3u;++c)
+                p[c]=(unsigned char)((alpha*p[c]+(255u-alpha)*backdrop[c]+127u)/255u);
+            p[3]=255u;
+        }
+    }
     out_image->pixels = pixels;
     out_image->size = pixels_count * 4u;
     out_image->width = width;
@@ -3393,6 +3452,7 @@ static quantapdf_status qp_ordered_scene(
        source->links!=NULL || source->link_count!=0u ||
        source->outlines!=NULL || source->outline_count!=0u ||
        (clip!=NULL && !qp_no_resources(source)) ||
+       (source->resources.graphics_state_count!=0u && source->resources.graphics_states==NULL) ||
        source->pages[0].width_points<1.0f || source->pages[0].width_points>65536.0f ||
        source->pages[0].height_points<1.0f || source->pages[0].height_points>65536.0f ||
        (source->pages[0].background_argb>>24u)!=255u || source->pages[0].suppress_background!=0 ||
@@ -3403,10 +3463,13 @@ static quantapdf_status qp_ordered_scene(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     for(size_t i=0u;i<source->operation_count;++i) {
         const quantapdf_composer_operation *op=&source->operations[i];
+        const size_t state=(size_t)op->graphics_state_id;
+        if(op->page_index!=0u || state>source->resources.graphics_state_count)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
             const quantapdf_composer_path_operation *path=&op->value.path;
             const quantapdf_composer_path_options *opt=&path->options;
-            if(op->page_index!=0u || op->graphics_state_id>source->resources.graphics_state_count || path->commands==NULL ||
+            if(path->commands==NULL ||
                path->command_count==0u || path->command_count>SIZE_MAX-commands || path->dash_count!=0u || path->dash_lengths!=NULL || path->dash_phase!=0.0f ||
                opt->fill!=1 || opt->stroke!=0 ||
                (opt->fill_argb>>24u)!=255u || opt->graphics_state_id!=op->graphics_state_id || opt->fill_paint_id!=0u || opt->stroke_paint_id!=0u ||
@@ -3416,16 +3479,16 @@ static quantapdf_status qp_ordered_scene(
             if(capacity==SIZE_MAX)return QUANTAPDF_ERROR_UNSUPPORTED;
             ++capacity;commands+=path->command_count;continue;
         }
+        if(state!=0u && source->resources.graphics_states[state-1u].blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         if(op->kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
-            if(clip!=NULL || op->page_index!=0u || capacity==SIZE_MAX ||
-               op->graphics_state_id>source->resources.graphics_state_count ||
+            if(clip!=NULL || capacity==SIZE_MAX ||
                op->value.image.options.graphics_state_id!=op->graphics_state_id)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             ++capacity;continue;
         }
         const quantapdf_text_outline_operation *text=&op->value.text_outlines;
-        if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES || op->page_index!=0u ||
-           op->graphics_state_id>source->resources.graphics_state_count || (text->argb>>24u)!=255u ||
+        if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES || (text->argb>>24u)!=255u ||
            text->glyph_count>SIZE_MAX-capacity || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         capacity+=text->glyph_count;

@@ -87,10 +87,8 @@ static int native_image_depth_source_contract(const quantapdf_qpdf_page_limits& 
         quantapdf_ir copy{};
         const auto dispose_copy = std::unique_ptr<quantapdf_ir, decltype(&quantapdf_ir_dispose)>(
             &copy, quantapdf_ir_dispose);
-        auto written_limits = source;
-        written_limits.max_operations = 2u; // Composer emits the page background as a Fill.
-        CHECK(quantapdf_qpdf_page_to_ir(reopened.get(), 0u, &written_limits, &copy) == QUANTAPDF_OK);
-        CHECK(copy.operation_count == 2u && copy.resources.image_count == 1u);
+        CHECK(quantapdf_qpdf_page_to_ir(reopened.get(), 0u, &source, &copy) == QUANTAPDF_OK);
+        CHECK(copy.operation_count == 1u && copy.resources.image_count == 1u);
         const auto& persisted = copy.resources.images[0];
         CHECK(persisted.mask_width == image.mask_width && persisted.mask_height == image.mask_height &&
             persisted.mask_interpolate == image.mask_interpolate && persisted.alpha_size == image.alpha_size &&
@@ -228,7 +226,7 @@ static int native_soft_mask_source_contract(const quantapdf_qpdf_page_limits& de
     quantapdf_ir copy{};
     const auto dispose_copy = std::unique_ptr<quantapdf_ir, decltype(&quantapdf_ir_dispose)>(&copy, quantapdf_ir_dispose);
     CHECK(quantapdf_qpdf_page_to_ir(reopened.get(), 0u, &source, &copy) == QUANTAPDF_OK);
-    CHECK(copy.operation_count == 2u && copy.resources.image_count == 1u); // Includes the written background.
+    CHECK(copy.operation_count == 1u && copy.resources.image_count == 1u);
     const auto& persisted = copy.resources.images[0];
     CHECK(persisted.format == original.format && persisted.size == original.size &&
         std::memcmp(persisted.data, original.data, original.size) == 0);

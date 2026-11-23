@@ -1,4 +1,5 @@
 #include "graph_extgstate.h"
+#include "resource/composer_blend_names.h"
 
 #include <math.h>
 #include <stdint.h>
@@ -103,24 +104,13 @@ static quantapdf_status real_number(const quantapdf_graph_model *model,
 static quantapdf_status blend_mode(const quantapdf_graph_model *model,
     quantapdf_local_id id, quantapdf_composer_blend_mode *out)
 {
-    static const struct {
-        const char *name;
-        quantapdf_composer_blend_mode value;
-    } supported[] = {
-        {"/Normal", QUANTAPDF_COMPOSER_BLEND_NORMAL},
-        {"/Multiply", QUANTAPDF_COMPOSER_BLEND_MULTIPLY},
-        {"/Screen", QUANTAPDF_COMPOSER_BLEND_SCREEN},
-        {"/Overlay", QUANTAPDF_COMPOSER_BLEND_OVERLAY},
-        {"/Darken", QUANTAPDF_COMPOSER_BLEND_DARKEN},
-        {"/Lighten", QUANTAPDF_COMPOSER_BLEND_LIGHTEN}
-    };
     const quantapdf_graph_node *node = quantapdf_graph_node_at(model, id);
     if (node == NULL) return QUANTAPDF_ERROR_BACKEND;
     if (node->kind != QUANTAPDF_GRAPH_NAME)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    for (size_t i = 0; i < sizeof(supported) / sizeof(supported[0]); ++i) {
-        if (name_equals(model, node, supported[i].name)) {
-            *out = supported[i].value;
+    for (size_t i = 0; i < sizeof(quantapdf_pdf_blend_names) / sizeof(quantapdf_pdf_blend_names[0]); ++i) {
+        if (name_equals(model, node, quantapdf_pdf_blend_names[i].name)) {
+            *out = quantapdf_pdf_blend_names[i].mode;
             return QUANTAPDF_OK;
         }
     }
