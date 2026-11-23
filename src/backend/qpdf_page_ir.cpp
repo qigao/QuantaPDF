@@ -2288,7 +2288,7 @@ void copy_outline_paint(quantapdf_composer_operation& op,
 {
     op.kind=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES;
     auto& text=op.value.text_outlines;text.argb=paint.argb;text.glyph_count=paint.glyphs.size();
-    text.merge_glyph_coverage=paint.merge_glyph_coverage;
+    text.knockout_object=paint.knockout_object;
     if(text.glyph_count==0u)return;
     text.glyphs=static_cast<quantapdf_outline_glyph *>(QP_SOURCE_C_CALLOC(text.glyph_count,sizeof(*text.glyphs)));
     admit(text.glyphs!=nullptr,QUANTAPDF_ERROR_NOMEM);

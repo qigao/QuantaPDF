@@ -34,6 +34,7 @@ typedef struct quantapdf_ir_raster_v1_limits {
  * types. Pixel/mask surfaces and borrowed Source bytes are added by prepare. */
 int quantapdf_native_geometry_allocation_bound_v1(
     size_t max_edges,size_t max_draws,size_t *out_bytes);
+int quantapdf_native_text_knockout_scratch_bound_v1(size_t width,size_t *out_bytes);
 int quantapdf_native_owned_geometry_bound_v1(
     size_t max_edges,size_t max_draws,size_t max_commands,size_t max_owners,size_t *out_bytes);
 int quantapdf_native_scene_clip_storage_bound_v1(

@@ -13,7 +13,7 @@ namespace quantapdf::detail {
 struct source_outline_glyph { std::vector<quantapdf_composer_path_command> commands; };
 struct source_outline_paint {
     std::vector<source_outline_glyph> glyphs; uint32_t argb;
-    bool merge_glyph_coverage;
+    size_t knockout_object;
 };
 inline std::array<double,3> source_rgb_channels(uint32_t argb)
 {

@@ -74,7 +74,7 @@ typedef struct quantapdf_text_outline_operation {
     quantapdf_outline_glyph *glyphs;
     size_t glyph_count;
     uint32_t argb;
-    int merge_glyph_coverage;
+    size_t knockout_object; /* Nonzero identifies the text object for combined coverage. */
 } quantapdf_text_outline_operation;
 
 typedef struct quantapdf_composer_operation {

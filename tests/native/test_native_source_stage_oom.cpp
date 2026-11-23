@@ -5140,10 +5140,55 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
     return EXIT_SUCCESS;
 }
 
+static int text_knockout_source_contract(const quantapdf_qpdf_page_limits& defaults)
+{
+    const auto original=native_graphics_fixture::create_alpha_group(
+        "BT /F 4 Tf /Half gs /Multiply gs 1 1 Td <002d> Tj "
+        "/Screen gs /Quarter gs 1 0 0 rg 1 0 0 1 1.5 1 Tm <002d> Tj ET","");
+    quantapdf_qpdf_document *document=nullptr;
+    CHECK(quantapdf_qpdf_open_memory(reinterpret_cast<const unsigned char*>(original.bytes.data()),
+        original.bytes.size(),"",&document)==QUANTAPDF_OK);
+    const auto owner=std::unique_ptr<quantapdf_qpdf_document,decltype(&quantapdf_qpdf_close)>(
+        document,quantapdf_qpdf_close);
+    quantapdf_ir ir{};
+    const auto dispose=std::unique_ptr<quantapdf_ir,decltype(&quantapdf_ir_dispose)>(&ir,quantapdf_ir_dispose);
+    CHECK(quantapdf_qpdf_page_to_ir(document,0u,&defaults,&ir)==QUANTAPDF_OK && ir.operation_count==2u);
+
+    const quantapdf_ir_raster_scoped_mixed_v5_limits budget={300u,2u,512u,1000000u,16u,300u};
+    quantapdf_native_page_device device{};
+    device.dpi=144.0f;
+    quantapdf_native_prepared_page_v1 plan{};
+    CHECK(quantapdf_native_prepare_page_v1(&ir,&budget,&device,&plan)==QUANTAPDF_OK &&
+        plan.usage.text_knockout_groups);
+    m2a_malloc_fault_state baseline{};
+    plan.malloc_fault={&baseline,m2a_malloc_fault_callback};
+    quantapdf_native_execution_receipt_v1 receipt{};
+    quantapdf_ir_raster_image output{};
+    CHECK(quantapdf_native_execute_page_v1(&plan,&receipt,&output)==QUANTAPDF_OK);
+    quantapdf_ir_raster_image_dispose(&output);
+    CHECK(baseline.attempts>0u && receipt.peak_live_bytes>1u);
+    for(size_t fail=1u;fail<=baseline.attempts;++fail) {
+        m2a_malloc_fault_state fault{};
+        fault.fail_on=fail;
+        plan.malloc_fault={&fault,m2a_malloc_fault_callback};
+        CHECK(quantapdf_native_execute_page_v1(&plan,nullptr,&output)==QUANTAPDF_ERROR_NOMEM &&
+            zero_bitmap(output) && fault.attempts==fail && fault.failures==1u);
+    }
+    plan.malloc_fault={};
+    plan.resource_limits.max_live_bytes=receipt.peak_live_bytes;
+    CHECK(quantapdf_native_execute_page_v1(&plan,nullptr,&output)==QUANTAPDF_OK);
+    quantapdf_ir_raster_image_dispose(&output);
+    --plan.resource_limits.max_live_bytes;
+    CHECK(quantapdf_native_execute_page_v1(&plan,nullptr,&output)==QUANTAPDF_ERROR_UNSUPPORTED &&
+        zero_bitmap(output));
+    return EXIT_SUCCESS;
+}
+
 static int graphics_state_source_contracts(
     const quantapdf_qpdf_page_limits& defaults)
 {
     CHECK(mask_group_source_contract(defaults)==EXIT_SUCCESS);
+    CHECK(text_knockout_source_contract(defaults)==EXIT_SUCCESS);
     size_t stack_faults=0u,publication_faults=0u,quota_checks=0u;
     for(bool clipped:{false,true})for(bool encrypted:{false,true})for(int kind:{0,1,2,3}) {
         const bool images=kind==1;

@@ -17,6 +17,7 @@
 typedef struct quantapdf_native_prepared_usage_v1 {
     size_t operations,expanded_paints,glyphs,commands,image_pixels,retained_bytes;
     size_t states_used,clips_used,clip_leaves;
+    int text_knockout_groups;
 } quantapdf_native_prepared_usage_v1;
 
 typedef struct quantapdf_native_prepared_page_v1 {
@@ -185,17 +186,20 @@ static inline int qp_prepared_resource_closure(
            gs->soft_mask_id!=0u || gs->clip_id>r->clip_count)
             return 0;
     }
+    size_t previous_knockout=0u;
     for(size_t i=0u;i<ir->operation_count;++i) {
         const quantapdf_composer_operation *op=&ir->operations[i];
         const size_t state=(size_t)op->graphics_state_id;
         if(op->page_index!=0u || state>r->graphics_state_count)return 0;
         if(op->kind==QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+            previous_knockout=0u;
             const size_t id=(size_t)op->value.image.image_id;
             if(id==0u || id>r->image_count ||
                op->value.image.options.graphics_state_id!=op->graphics_state_id)
                 return 0;
             ++u->expanded_paints;
         } else if(op->kind==QUANTAPDF_COMPOSER_OPERATION_PATH) {
+            previous_knockout=0u;
             const quantapdf_composer_path_operation *p=&op->value.path;
             if(p->options.graphics_state_id!=op->graphics_state_id ||
                p->options.fill_paint_id!=0u || p->options.stroke_paint_id!=0u ||
@@ -211,6 +215,11 @@ static inline int qp_prepared_resource_closure(
                !qp_prepared_bytes(&u->retained_bytes,t->glyph_count,sizeof(*t->glyphs)))
                 return 0;
             *text=1;u->expanded_paints+=t->glyph_count;
+            if(t->glyph_count!=0u) {
+                u->text_knockout_groups|=t->knockout_object!=0u &&
+                    t->knockout_object==previous_knockout;
+                previous_knockout=t->knockout_object;
+            }
             for(size_t g=0u;g<t->glyph_count;++g)
                 if(!qp_prepared_commands(t->glyphs[g].commands,t->glyphs[g].command_count,u))
                     return 0;
@@ -314,7 +323,7 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
            !qp_prepared_charge(&bytes,geometry,SIZE_MAX))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if(p.route==QP_NATIVE_PREPARED_SCENE) {
-            /* One result surface and scratch only for original glyph masks. */
+            /* A result surface, glyph masks, and one row for multi-state knockout. */
             const size_t pixel_bytes=4u+(p.usage.glyphs!=0u?sizeof(uint16_t):0u);
             size_t clips=0u;
             if(!quantapdf_native_scene_clip_storage_bound_v1(&source->resources,p.usage.clip_leaves,&clips) ||
@@ -322,6 +331,12 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
                !qp_prepared_bytes(&bytes,p.usage.expanded_paints,sizeof(quantapdf_composer_operation)) ||
                !qp_prepared_bytes(&bytes,limits->max_pixels,pixel_bytes))
                 return QUANTAPDF_ERROR_UNSUPPORTED;
+            if(p.usage.text_knockout_groups) {
+                size_t scratch;
+                if(!quantapdf_native_text_knockout_scratch_bound_v1(p.physical.width,&scratch) ||
+                   !qp_prepared_charge(&bytes,scratch,SIZE_MAX))
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+            }
         } else {
             /* Remaining clipped layer compilers retain their existing envelope. */
             if(!quantapdf_native_device_projection_bytes(source->operation_count,&projection) ||
