@@ -893,13 +893,14 @@
 - Normal 混合的路径填充、图像和文字轮廓支持 ExtGState `/ca`。Source 为每笔绘制保存
   当前透明度与 Clip／软遮罩，`q/Q` 跨越 `BT/ET` 时也恢复透明度。采样先应用 Clip
   和生效的遮罩，再乘以 `/ca` 并按绘制顺序执行 source-over。
-- 默认 text knockout 下，半透明文字对象支持一次文字显示操作。同一次显示的字形
-  在子像素合并覆盖率，包括 `TJ` 中重叠的字形。验证覆盖 72／144 DPI 的组合像素、
+- 默认 text knockout 下，半透明文字对象支持多次使用相同绘制状态的文字显示操作。
+  同一个 `BT/ET` 内的字形在子像素合并覆盖率，包括 `TJ` 内及跨显示操作的重叠。
+  验证覆盖 72／144 DPI 的组合像素、
   填充和图像写回重开与 IR 发布失败，并保留 PDF 中的数值精度。
-- 待实现 `/CA`、半透明文字对象内的多次显示、`/TK false`、
+- 待实现 `/CA`、半透明文字对象内使用不同绘制状态的多次显示、`/TK false`、
   其他 Luminosity 色彩空间及遮罩组内图像、文字和嵌套组。
 
-### A5 路径填充与图像的混合模式
+### A5 路径填充、图像与文字的混合模式
 
 - RGB 页面路径填充支持 ExtGState `/BM` 的 Multiply、Screen、Overlay、Darken 和 Lighten。
   `f` 与 `f*` 按顺序使用当前混合模式、`/ca`、Clip 和软遮罩。混合使用 4×4 采样的像素覆盖率
@@ -911,7 +912,12 @@
   支持图形状态 `/ca`、Clip 和软遮罩。图像自带的 `/Mask` 或 `/SMask` 优先于
   图形状态软遮罩。验证覆盖 16 位图像、插值软遮罩、色键和写回重开。
   [PDF 32000-1 §11.6.4.2](https://opensource.adobe.com/dc-acrobat-sdk-docs/standards/pdfstandards/pdf/PDF32000_2008.pdf)
-- 描边、文字和遮罩组内的非 Normal 混合，以及其余模式和 `/BM` 数组待实现。
+- 填充模式的文字轮廓复用这五种混合模式。同一个 `BT/ET` 内使用相同颜色、混合模式、
+  `/ca`、Clip 和软遮罩的重叠字形按默认 text knockout 合并。验证覆盖 72／144 DPI、
+  软遮罩与裁剪、`q/Q` 恢复、Composer Multiply 文字写出后重开。
+  [PDF 32000-1 §11.6.7](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/PDF32000_2008.pdf)
+- 描边和遮罩组内的非 Normal 混合、文字对象内变化的混合绘制状态，以及其余模式和
+  `/BM` 数组待实现。
 
 ## 单一执行模型
 
@@ -950,7 +956,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
 | A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射、插值、颜色键、显式位图遮罩、独立 DeviceGray／DeviceRGB stencil 绘制及灰度图像 SMask（含 DeviceGray／RGB／CMYK 与 Indexed Matte），具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、独立 stencil 提取和 JPEG2000 内嵌 alpha | P1 |
-| A5 Form、透明度与外观 | Normal `/ca` 页面绘制、路径填充与图像的五种非 Normal 混合模式、Alpha 及 DeviceGray／RGB Luminosity 矢量遮罩组，支持四类标量 `/TR` | 通用 Form、透明组、描边透明度、更多混合模式及绘制类型、其他遮罩色彩空间、pattern/shading、annotation/widget appearance | P1 |
+| A5 Form、透明度与外观 | Normal `/ca` 页面绘制、路径填充、图像与填充文字的五种非 Normal 混合模式、Alpha 及 DeviceGray／RGB Luminosity 矢量遮罩组，支持四类标量 `/TR` | 通用 Form、透明组、描边透明度、更多混合模式及绘制类型、其他遮罩色彩空间、pattern/shading、annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
 

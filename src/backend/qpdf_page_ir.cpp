@@ -907,13 +907,14 @@ Obj read_source_gs_mask(Obj resources,Obj name,double& fill_alpha,
 }
 
 // The token interpreter supplies the paint's actual current Clip identity.
-quantapdf_status source_text_paint(void *user,clip_identity clip,clip_identity mask,double opacity)
+quantapdf_status source_text_paint(void *user,clip_identity clip,clip_identity mask,double opacity,
+    quantapdf_composer_blend_mode blend)
 {
     auto& source=*static_cast<admission*>(user);
     try {
         admit(source.order.size()<source.limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
         source.order.push_back(3);
-        source.scoped_paints.push_back({source.paint_clip(clip,mask),opacity});
+        source.scoped_paints.push_back({source.paint_clip(clip,mask),opacity,blend});
         return QUANTAPDF_OK;
     } catch(rejected const& e){return e.status;}
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
@@ -985,8 +986,8 @@ public:
                 {current,fill_argb,clip_active,mask_active,fill_alpha,blend},
                 scoped_saved,
                 {this,
-                 [](void *u,clip_identity clip,clip_identity mask,double opacity){
-                     return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip,mask,opacity);
+                 [](void *u,clip_identity clip,clip_identity mask,double opacity,quantapdf_composer_blend_mode mode){
+                     return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip,mask,opacity,mode);
                  },
                  [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,
                     clip_identity clip,clip_identity mask,double opacity,quantapdf_composer_blend_mode mode){

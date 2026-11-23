@@ -199,7 +199,8 @@ static int alpha_group_cases(const std::string& filename)
           std::any_of(actual.begin(),actual.end(),[](unsigned char v){return v!=255u;}));
 
     const auto overlapping_glyphs=create_alpha_group(
-        "/Half gs BT /F 4 Tf /StrokeOnly gs 1 1 Td [<002d> 713 <002d>] TJ ET","");
+        "/Half gs BT /F 4 Tf /StrokeOnly gs 1 1 Td [<002d> 713 <002d>] TJ "
+        "1 0 0 1 1 1 Tm <002d> Tj ET","");
     CHECK(render(overlapping_glyphs,144u,actual)==EXIT_SUCCESS);
     for(size_t i=0u;i<actual.size();++i) {
         const unsigned glyph_samples=((255u-unmasked[i])*16u+127u)/255u;
@@ -551,8 +552,40 @@ static int alpha_group_cases(const std::string& filename)
             }
         }
     }
-    for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f",
-        "/ColorBurn gs /Plain Do", "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj ET"}) {
+    constexpr const char *text_mask_form=
+        "<< /Subtype /Form /BBox [0 0 12 2.5] /Group << /S /Transparency /I true >> >>";
+    const auto restored_text=create_alpha_group("BT /F 4 Tf 7 1 Td <002d> Tj ET","");
+    for(unsigned dpi:{72u,144u})for(bool masked:{false,true}) {
+        const auto original_text=create_alpha_group(masked?
+            "1.75 0 2.25 2.5 re W n BT /F 4 Tf 1 1 Td <002d> Tj ET":
+            "1.75 0 2.25 4 re W n BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+        CHECK(render(original_text,dpi,reference)==EXIT_SUCCESS);
+        CHECK(std::any_of(reference.begin(),reference.end(),[](unsigned char v){return v!=255u;}));
+        CHECK(render(restored_text,dpi,unmasked)==EXIT_SUCCESS);
+        for(const auto& mode:blends) {
+            const auto page=create_alpha_group(
+                std::string(".2 .6 .8 rg 0 0 12 4 re f q 1.75 0 2.25 4 re W n ")+mode.name+
+                " gs "+(masked?"/Half gs /Alpha gs ":"")+
+                ".8 .4 .2 rg BT /F 4 Tf 1 1 Td [<002d> 713 <002d>] TJ "
+                "1 0 0 1 1 1 Tm <002d> Tj ET Q "
+                "0 g BT /F 4 Tf 7 1 Td <002d> Tj ET",
+                "/Half gs 0 0 12 4 re f",text_mask_form);
+            CHECK(render(page,dpi,actual)==EXIT_SUCCESS);
+            const unsigned base[]={51u,153u,204u};
+            for(size_t i=0u;i<actual.size();++i) {
+                const auto c=i%3u;
+                const unsigned samples=((255u-reference[i])*16u+127u)/255u;
+                const unsigned restored_samples=((255u-unmasked[i])*16u+127u)/255u;
+                const double alpha=double(samples)/(masked?64.0:16.0);
+                const auto tone=static_cast<unsigned>((1.0-alpha)*base[c]+alpha*mode.blended[c]+0.5);
+                CHECK(actual[i]==(tone*(16u-restored_samples)+8u)/16u);
+            }
+        }
+    }
+    for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f","/ColorBurn gs /Plain Do",
+        "/ColorBurn gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
+        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj /Reset gs <002d> Tj ET",
+        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj 1 0 0 rg <002d> Tj ET"}) {
         CHECK(render(create_alpha_group(unsupported,""),72u,actual,
             QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }

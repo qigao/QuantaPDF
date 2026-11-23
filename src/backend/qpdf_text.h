@@ -33,7 +33,8 @@ struct source_text_seed {
  * contours use the existing interpreter; qpdf/font owners do not escape. */
 struct source_mixed_callbacks {
     void *user=nullptr;
-    quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id,quantapdf_composer_clip_id,double)=nullptr;
+    quantapdf_status (*on_text)(void*,quantapdf_composer_clip_id,quantapdf_composer_clip_id,
+        double,quantapdf_composer_blend_mode)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
         const std::array<double,6>&,const std::array<double,3>&,
         quantapdf_composer_clip_id,quantapdf_composer_clip_id,double,quantapdf_composer_blend_mode)=nullptr;

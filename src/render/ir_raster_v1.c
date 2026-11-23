@@ -898,7 +898,7 @@ static void qp_blend_separable_sample(unsigned char *dst, const uint64_t color[3
     dst[3]=(unsigned char)(255.0*alpha+0.5);
 }
 
-static void qp_blend_fill_pixel(
+static void qp_blend_solid_pixel(
     unsigned char *dst, const qp_raster_draw *draw, double coverage)
 {
     const double covered=coverage*draw->opacity;
@@ -2670,7 +2670,7 @@ static quantapdf_status qp_geometry_sample(
                 } else {
                     for(unsigned k=0u;k<16u;++k)covered+=(unsigned)((mask>>k)&1u);
                 }
-                qp_blend_covered_pixel(pixels+4u*(y*width+x),draw->color,covered*draw->opacity);
+                qp_blend_solid_pixel(pixels+4u*(y*width+x),draw,covered);
             }
             if(ordered_scene)i+=draw->outline_count-1u;
             continue;
@@ -2694,7 +2694,7 @@ static quantapdf_status qp_geometry_sample(
                         }
                         covered=nx*ny;
                     }
-                    qp_blend_fill_pixel(pixels+4u*(y*width+x),draw,covered);
+                    qp_blend_solid_pixel(pixels+4u*(y*width+x),draw,covered);
                 }
             continue;
         }
@@ -2766,7 +2766,7 @@ static quantapdf_status qp_geometry_sample(
                         covered += (unsigned)visible;
                     }
                 }
-                qp_blend_fill_pixel(pixels+4u*(y*width+x),draw,covered);
+                qp_blend_solid_pixel(pixels+4u*(y*width+x),draw,covered);
             }
         }
     }
@@ -3496,8 +3496,6 @@ static quantapdf_status qp_ordered_scene(
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             ++capacity;continue;
         }
-        if(state!=0u && source->resources.graphics_states[state-1u].blend_mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
         const quantapdf_text_outline_operation *text=&op->value.text_outlines;
         if(op->kind!=QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES || (text->argb>>24u)!=255u ||
            text->glyph_count>SIZE_MAX-capacity || ((text->glyph_count==0u)!=(text->glyphs==NULL)))
@@ -3549,7 +3547,8 @@ static quantapdf_status qp_ordered_scene(
             const quantapdf_composer_operation *op=&source->operations[i];
             if(op->kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
                 const size_t count=op->value.text_outlines.glyph_count;
-                if(count!=0u && geometry->draws[draw].opacity!=1.0) {
+                if(count!=0u && (geometry->draws[draw].opacity!=1.0 ||
+                                 geometry->draws[draw].blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL)) {
                     // Same-state glyphs knock out one another at each subpixel.
                     geometry->draws[draw].outline_count=count;
                 } else {

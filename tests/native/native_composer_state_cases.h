@@ -185,10 +185,10 @@ static int composer_state_cases(const std::string& filename)
         for(size_t page=0u;page<2u;++page)for(unsigned dpi:{72u,96u,144u}) {
             quantapdf_bitmap *bitmap=nullptr;const quantapdf_render_options options{float(dpi),0.0f,0,{},0};
             const auto status=quantapdf_render_page_with_options(pages[page],&options,&bitmap);
-            if(mode<2u) {
+            if(mode<2u || mode==3u) {
                 if(status!=QUANTAPDF_OK)std::fprintf(stderr,"Composer state mode=%u page=%zu dpi=%u status=%d\n",mode,page,dpi,int(status));
                 CHECK(status==QUANTAPDF_OK && bitmap!=nullptr);
-                const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(bitmap,&pixels,&n));const auto expected=rgb(page,dpi,mode==1u);
+                const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(bitmap,&pixels,&n));const auto expected=rgb(page,dpi,mode!=0u);
                 if(n==expected.size() && std::memcmp(pixels,expected.data(),n)!=0)for(size_t i=0u;i<n;++i)if(pixels[i]!=expected[i]) {std::fprintf(stderr,"Composer RGB mode=%u page=%zu dpi=%u byte=%zu got=%u want=%u\n",mode,page,dpi,i,unsigned(pixels[i]),unsigned(expected[i]));break;}
                 CHECK(n==expected.size() && std::memcmp(pixels,expected.data(),n)==0);bitmaps.push_back({bitmap,page,dpi});++renders;
             } else {CHECK(status==QUANTAPDF_ERROR_UNSUPPORTED && bitmap==nullptr);++refusals;}
@@ -196,14 +196,14 @@ static int composer_state_cases(const std::string& filename)
         for(auto page:pages)quantapdf_drop_page(page);
         CHECK(finalized==(bitmaps.empty()?1u:0u));
         for(const auto& value:bitmaps) {
-            const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(value.bitmap,&pixels,&n));const auto expected=rgb(value.page,value.dpi,mode==1u);
+            const unsigned char *pixels=nullptr;size_t n=0u;OK(quantapdf_bitmap_data(value.bitmap,&pixels,&n));const auto expected=rgb(value.page,value.dpi,mode!=0u);
             CHECK(n==expected.size() && std::memcmp(pixels,expected.data(),n)==0);quantapdf_drop_bitmap(value.bitmap);
         }
         CHECK(finalized==1u);
     }
-    CHECK(renders==12u && refusals==24u && serialized==12u);
+    CHECK(renders==18u && refusals==18u && serialized==12u);
     CHECK(svg_records(filename)==EXIT_SUCCESS);
-    std::printf("Current Composer state records: %zu reopened page resource graphs, %zu analytic RGB renders, %zu honest native alpha/blend/SMask refusals; clip/mask IDs, transforms, dedup, builder errors and retired owners passed\n",serialized,renders,refusals);
+    std::printf("Current Composer state records: %zu reopened page resource graphs, %zu analytic RGB renders including Multiply, %zu native stroke-alpha/nested-SMask refusals; clip/mask IDs, transforms, dedup, builder errors and retired owners passed\n",serialized,renders,refusals);
     std::puts("SVG path/group/use alpha masks and path luminosity mask retain current graphics-state fields in reopened PDFs; native transparency explicitly unsupported");
     return EXIT_SUCCESS;
 }
