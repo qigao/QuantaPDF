@@ -190,6 +190,10 @@ add_test(NAME quantapdf.native_form_xobject
   COMMAND quantapdf_native_public_render --form-xobject)
 set_tests_properties(quantapdf.native_form_xobject PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;form-xobject")
+add_test(NAME quantapdf.native_transparency_group
+  COMMAND quantapdf_native_public_render --transparency-group)
+set_tests_properties(quantapdf.native_transparency_group PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;transparency-group")
 target_link_libraries(quantapdf_native_public_render PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend qpdf::libqpdf ZLIB::ZLIB)
 if(MSVC)
