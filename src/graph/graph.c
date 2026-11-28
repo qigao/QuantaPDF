@@ -1,10 +1,11 @@
 #include "graph_edit.h"
+#include "core/atomic_refcount.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct graph_lineage {
-    size_t references;
+    quantapdf_atomic_size references;
     uint64_t token;
     quantapdf_identity_sequence versions;
 } graph_lineage;
@@ -133,7 +134,7 @@ quantapdf_status quantapdf_graph_create(
         free(g);
         return status;
     }
-    g->lineage->references = 1;
+    quantapdf_refcount_init(&g->lineage->references, 1u);
     g->lineage->versions.next = 2;
     g->version = 1;
     g->limits = *limits;
@@ -150,7 +151,7 @@ void quantapdf_graph_drop(quantapdf_graph *g)
     free(g->edges);
     free(g->bytes);
     free(g->origins);
-    if (--g->lineage->references == 0)
+    if (quantapdf_refcount_release(&g->lineage->references))
         free(g->lineage);
     free(g);
 }
@@ -386,13 +387,18 @@ static quantapdf_status create_candidate(const quantapdf_graph *base,
     quantapdf_status status;
     size_t count, bytes;
     *out_graph = NULL;
-    if (base->lineage->references == SIZE_MAX) return QUANTAPDF_ERROR_NOMEM;
     g = (quantapdf_graph *)calloc(1, sizeof(*g));
     if (g == NULL) return QUANTAPDF_ERROR_NOMEM;
-    status = quantapdf_identity_next(&base->lineage->versions, &g->version);
+    status = quantapdf_refcount_retain(
+        &base->lineage->references, QUANTAPDF_ERROR_NOMEM);
     if (status != QUANTAPDF_OK) { free(g); return status; }
+    status = quantapdf_identity_next(&base->lineage->versions, &g->version);
+    if (status != QUANTAPDF_OK) {
+        (void)quantapdf_refcount_release(&base->lineage->references);
+        free(g);
+        return status;
+    }
     g->lineage = base->lineage;
-    ++g->lineage->references;
     g->limits = *limits;
     g->storage = sizeof(*g) + sizeof(*g->lineage);
     count = base->origin_count + (base->model.node_count > base->inherited_count ? 1u : 0u);

@@ -1,4 +1,5 @@
 target_sources(quantapdf PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/atomic_refcount.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/bitmap.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/bitmap_internal.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/context.c"

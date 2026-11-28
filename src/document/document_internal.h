@@ -5,7 +5,7 @@
 #include "../core/context_internal.h"
 
 struct quantapdf_document {
-    size_t references;
+    quantapdf_atomic_size references;
     quantapdf_context *context;
     unsigned char *source_data;
     size_t source_size;

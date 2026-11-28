@@ -32,14 +32,21 @@ quantapdf_status quantapdf_load_page(
 
     page->document = document;
     page->page_index = page_index;
-    status = document->ops->load_page(
-        document->backend, page_index, &page->backend);
+    status = quantapdf_refcount_retain(
+        &document->references, QUANTAPDF_ERROR_UNSUPPORTED);
     if (status != QUANTAPDF_OK) {
         free(page);
         quantapdf_drop_context(document->context);
         return status;
     }
-    ++document->references;
+    status = document->ops->load_page(
+        document->backend, page_index, &page->backend);
+    if (status != QUANTAPDF_OK) {
+        (void)quantapdf_refcount_release(&document->references);
+        free(page);
+        quantapdf_drop_context(document->context);
+        return status;
+    }
     *out_page = page;
     return QUANTAPDF_OK;
 }

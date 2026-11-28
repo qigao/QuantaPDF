@@ -95,7 +95,7 @@ quantapdf_status quantapdf_open_with_context(
         return QUANTAPDF_ERROR_NOMEM;
     }
     document->context = context;
-    document->references = 1u;
+    quantapdf_refcount_init(&document->references, 1u);
     document->ops = context->ops;
 
     status = quantapdf_copy_password(
@@ -147,6 +147,6 @@ quantapdf_status quantapdf_document_page_user_unit(
 
 void quantapdf_close(quantapdf_document *document)
 {
-    if(document!=NULL && --document->references==0u)
+    if (document != NULL && quantapdf_refcount_release(&document->references))
         quantapdf_dispose_document(document);
 }
