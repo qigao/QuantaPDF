@@ -927,8 +927,10 @@
   空数组或非名称元素返回 `QUANTAPDF_ERROR_FORMAT`，全为未支持模式返回 `QUANTAPDF_ERROR_UNSUPPORTED`）
   已贯通 C11 API、Source IR、Graph ExtGState、Composer 写出／重开与 C11 栅格化，并覆盖 Path、Image
   （含插值、色键、Alpha 遮罩）与 Text。
-- 描边和遮罩组内的非 Normal 混合、启用 knockout 时文字对象内变化的混合绘制状态，
-  以及不可分离混合模式（`/Hue`、`/Saturation`、`/Color`、`/Luminosity`）待实现。
+- 4 种 ISO 32000-1 §11.3.5.3 不可分离混合模式（`/Hue`、`/Saturation`、`/Color`、`/Luminosity`，
+  含 `Lum`/`Sat`/`ClipColor`/`SetLum`/`SetSat`）已贯通 C11 API、Source IR、Graph ExtGState、
+  Composer 写出／重开与 C11 栅格化，并覆盖 Path、Image、Text 及 `/BM` 名称数组回退。
+- 描边和遮罩组内的非 Normal 混合、启用 knockout 时文字对象内变化的混合绘制状态待实现。
 
 ## 单一执行模型
 
