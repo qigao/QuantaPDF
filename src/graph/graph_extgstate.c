@@ -101,20 +101,45 @@ static quantapdf_status real_number(const quantapdf_graph_model *model,
     return QUANTAPDF_OK;
 }
 
+static int match_blend_name(const quantapdf_graph_model *model,
+    const quantapdf_graph_node *node, quantapdf_composer_blend_mode *out)
+{
+    for (size_t i = 0; i < sizeof(quantapdf_pdf_blend_names) / sizeof(quantapdf_pdf_blend_names[0]); ++i) {
+        if (name_equals(model, node, quantapdf_pdf_blend_names[i].name)) {
+            *out = quantapdf_pdf_blend_names[i].mode;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static quantapdf_status blend_mode(const quantapdf_graph_model *model,
     quantapdf_local_id id, quantapdf_composer_blend_mode *out)
 {
     const quantapdf_graph_node *node = quantapdf_graph_node_at(model, id);
     if (node == NULL) return QUANTAPDF_ERROR_BACKEND;
-    if (node->kind != QUANTAPDF_GRAPH_NAME)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    for (size_t i = 0; i < sizeof(quantapdf_pdf_blend_names) / sizeof(quantapdf_pdf_blend_names[0]); ++i) {
-        if (name_equals(model, node, quantapdf_pdf_blend_names[i].name)) {
-            *out = quantapdf_pdf_blend_names[i].mode;
-            return QUANTAPDF_OK;
-        }
+    if (node->kind == QUANTAPDF_GRAPH_NAME) {
+        return match_blend_name(model, node, out)
+            ? QUANTAPDF_OK
+            : QUANTAPDF_ERROR_UNSUPPORTED;
     }
-    return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (node->kind == QUANTAPDF_GRAPH_ARRAY) {
+        int found = 0;
+        if (node->edge_count == 0u) return QUANTAPDF_ERROR_FORMAT;
+        for (size_t i = 0; i < node->edge_count; ++i) {
+            const quantapdf_graph_edge *edge =
+                &model->edges[node->edge_offset + i];
+            const quantapdf_graph_node *item =
+                quantapdf_graph_node_at(model, edge->target);
+            if (item == NULL) return QUANTAPDF_ERROR_BACKEND;
+            if (item->kind != QUANTAPDF_GRAPH_NAME) return QUANTAPDF_ERROR_FORMAT;
+            if (!found && match_blend_name(model, item, out)) {
+                found = 1;
+            }
+        }
+        return found ? QUANTAPDF_OK : QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return QUANTAPDF_ERROR_FORMAT;
 }
 
 static quantapdf_status resolve_delta(

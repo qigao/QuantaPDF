@@ -882,11 +882,31 @@ Obj read_source_gs_mask(Obj resources,Obj name,double& fill_alpha,
     }
     Obj bm=entry.getKey("/BM");
     if(!bm.isNull()) {
-        admit(bm.isName(),QUANTAPDF_ERROR_FORMAT);
-        const auto it=std::find_if(std::begin(quantapdf_pdf_blend_names),std::end(quantapdf_pdf_blend_names),
-            [&](const auto& entry){return bm.isNameAndEquals(entry.name);});
-        admit(it!=std::end(quantapdf_pdf_blend_names),QUANTAPDF_ERROR_UNSUPPORTED);
-        blend=it->mode;
+        admit(bm.isName() || bm.isArray(),QUANTAPDF_ERROR_FORMAT);
+        if(bm.isName()) {
+            const auto it=std::find_if(std::begin(quantapdf_pdf_blend_names),std::end(quantapdf_pdf_blend_names),
+                [&](const auto& candidate){return bm.isNameAndEquals(candidate.name);});
+            admit(it!=std::end(quantapdf_pdf_blend_names),QUANTAPDF_ERROR_UNSUPPORTED);
+            blend=it->mode;
+        } else {
+            const int count=bm.getArrayNItems();
+            admit(count>0,QUANTAPDF_ERROR_FORMAT);
+            bool found=false;
+            for(int i=0;i<count;++i) {
+                Obj item=bm.getArrayItem(i);
+                admit(item.isName(),QUANTAPDF_ERROR_FORMAT);
+                if(!found) {
+                    const auto it=std::find_if(std::begin(quantapdf_pdf_blend_names),
+                        std::end(quantapdf_pdf_blend_names),
+                        [&](const auto& candidate){return item.isNameAndEquals(candidate.name);});
+                    if(it!=std::end(quantapdf_pdf_blend_names)) {
+                        blend=it->mode;
+                        found=true;
+                    }
+                }
+            }
+            admit(found,QUANTAPDF_ERROR_UNSUPPORTED);
+        }
     }
     Obj smask=entry.getKey("/SMask");
     admit(smask.isNull() || smask.isNameAndEquals("/None") || smask.isDictionary(),
