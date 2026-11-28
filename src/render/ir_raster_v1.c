@@ -876,6 +876,36 @@ static double qp_blend_channel(
         return (backdrop<source?backdrop:source)*255.0;
     case QUANTAPDF_COMPOSER_BLEND_LIGHTEN:
         return (backdrop>source?backdrop:source)*255.0;
+    case QUANTAPDF_COMPOSER_BLEND_COLOR_DODGE:
+        if(backdrop==0u)return 0.0;
+        if(source>=255.0)return 65025.0;
+        {
+            const double dodged=(double)backdrop*255.0/(255.0-source);
+            return (dodged<255.0?dodged:255.0)*255.0;
+        }
+    case QUANTAPDF_COMPOSER_BLEND_COLOR_BURN:
+        if(backdrop==255u)return 65025.0;
+        if(source<=0.0)return 0.0;
+        {
+            const double burned=(double)(255u-backdrop)*255.0/source;
+            return (burned<255.0?255.0-burned:0.0)*255.0;
+        }
+    case QUANTAPDF_COMPOSER_BLEND_HARD_LIGHT:
+        return source<=127.5 ? 2.0*product : 65025.0-2.0*(double)(255u-backdrop)*(255.0-source);
+    case QUANTAPDF_COMPOSER_BLEND_SOFT_LIGHT: {
+        const double b=(double)backdrop/255.0;
+        const double s=source/255.0;
+        if(s<=0.5) {
+            return (b-(1.0-2.0*s)*b*(1.0-b))*65025.0;
+        } else {
+            const double d=b<=0.25 ? ((16.0*b-12.0)*b+4.0)*b : sqrt(b);
+            return (b+(2.0*s-1.0)*(d-b))*65025.0;
+        }
+    }
+    case QUANTAPDF_COMPOSER_BLEND_DIFFERENCE:
+        return fabs((double)backdrop-source)*255.0;
+    case QUANTAPDF_COMPOSER_BLEND_EXCLUSION:
+        return ((double)backdrop+source)*255.0-2.0*product;
     case QUANTAPDF_COMPOSER_BLEND_NORMAL:
         return source*255.0;
     }
@@ -1136,7 +1166,7 @@ static int qp_scene_resources(const quantapdf_ir *ir,size_t *leaf_count)
         if(g->clip_id>r->clip_count || g->soft_mask_id!=0u ||
            !(g->fill_alpha>=0.0 && g->fill_alpha<=1.0) ||
            g->stroke_alpha!=1.0f || g->blend_mode<QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-           g->blend_mode>QUANTAPDF_COMPOSER_BLEND_LIGHTEN)return 0;
+           g->blend_mode>QUANTAPDF_COMPOSER_BLEND_EXCLUSION)return 0;
     }
     return 1;
 }

@@ -12,8 +12,8 @@ extern "C" {
  * Nearest /Page or /Pages /Resources wins as a whole dictionary; lookup then
  * follows /ExtGState and the exact, slash-prefixed resource name. No QPDF
  * object handle, provider, parser or borrowed graph pointer escapes.
- * Only /Type, /ca, /CA, and a supported name-valued /BM are admitted.
- * Other ExtGState keys, blend lists and soft masks fail closed. The
+ * Only /Type, /ca, /CA, and a supported name- or name-array-valued /BM are admitted.
+ * Other ExtGState keys and soft masks fail closed. The
  * returned index-aligned delta vector belongs to caller; free() it.
  * No GS operators: returns OK with NULL out_changes/count=0. */
 quantapdf_status quantapdf_graph_resolve_page_extgstates(
