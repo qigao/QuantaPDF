@@ -4156,6 +4156,7 @@ static int native_seventh_userunit_late_refusal_cases(
 #include "native_opened_document_cases.h"
 #include "native_content_stream_cases.h"
 #include "native_graphics_state_cases.h"
+#include "native_form_xobject_cases.h"
 #include "native_ordered_paints_cases.h"
 #include "native_ordered_text_cases.h"
 #include "native_ordered_scene_cases.h"
@@ -4280,6 +4281,8 @@ int main(int argc,char **argv)
         return ordered_paints_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--graphics-state")==0)
         return graphics_state_cases(filename);
+    if(argc==2 && std::strcmp(argv[1],"--form-xobject")==0)
+        return form_xobject_cases(filename);
     if(argc==2 && std::strcmp(argv[1],"--content-streams")==0)
         return content_stream_cases(filename+".contents.pdf");
     if(argc==2 && std::strcmp(argv[1],"--opened-document")==0)

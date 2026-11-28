@@ -186,6 +186,10 @@ add_test(NAME quantapdf.native_graphics_state
   COMMAND quantapdf_native_public_render --graphics-state)
 set_tests_properties(quantapdf.native_graphics_state PROPERTIES
   TIMEOUT 45 LABELS "conformance;native;public-api;graphics-state")
+add_test(NAME quantapdf.native_form_xobject
+  COMMAND quantapdf_native_public_render --form-xobject)
+set_tests_properties(quantapdf.native_form_xobject PROPERTIES
+  TIMEOUT 45 LABELS "conformance;native;public-api;form-xobject")
 target_link_libraries(quantapdf_native_public_render PRIVATE
   QuantaPDF::QuantaPDF quantapdf_backend qpdf::libqpdf ZLIB::ZLIB)
 if(MSVC)
