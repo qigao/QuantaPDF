@@ -4,10 +4,10 @@
 # qpdf remains the private PDF structure/editing and source-decoding library.
 if(NOT "@BUILD_SHARED_LIBS@")
   include(CMakeFindDependencyMacro)
-  find_dependency(qpdf 12.4.0 EXACT CONFIG)
+  find_dependency(qpdf 12.4 CONFIG)
   find_dependency(ZLIB)
   find_dependency(JPEG)
-  set_property(TARGET qpdf::libqpdf PROPERTY INTERFACE_LINK_LIBRARIES
+  set_property(TARGET qpdf::libqpdf APPEND PROPERTY INTERFACE_LINK_LIBRARIES
     "ZLIB::ZLIB;JPEG::JPEG")
 endif()
 
