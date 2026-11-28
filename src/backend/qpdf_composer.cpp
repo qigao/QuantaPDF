@@ -1393,7 +1393,8 @@ QPDFObjectHandle make_transparency_group(
     QPDFObjectHandle resources,
     quantapdf_composer_page_state const& page,
     bool knockout = false,
-    const char* color_space = "/DeviceRGB")
+    const char* color_space = "/DeviceRGB",
+    bool isolated = true)
 {
     auto stream = pdf.newStream(content);
     auto dictionary = stream.getDict();
@@ -1416,7 +1417,7 @@ QPDFObjectHandle make_transparency_group(
 
     group.replaceKey("/S", QPDFObjectHandle::newName("/Transparency"));
     group.replaceKey("/CS", QPDFObjectHandle::newName(color_space));
-    group.replaceKey("/I", QPDFObjectHandle::newBool(true));
+    group.replaceKey("/I", QPDFObjectHandle::newBool(isolated));
     group.replaceKey("/K", QPDFObjectHandle::newBool(knockout));
     dictionary.replaceKey("/Group", group);
     return stream;
@@ -1790,28 +1791,40 @@ QPDFObjectHandle make_clip_mask_group(
     auto resources = QPDFObjectHandle::newDictionary();
     auto states = QPDFObjectHandle::newDictionary();
     const bool luminosity = group.mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+    const bool rgb = luminosity && group.has_backdrop_rgb != 0;
     for (std::size_t i = 0u; i < group.member_count; ++i) {
         content += "q\n";
-        if (group.member_opacities != nullptr && group.member_opacities[i] != 1.0) {
-            const double opacity = group.member_opacities[i];
+        const bool need_opacity = group.member_opacities != nullptr && group.member_opacities[i] != 1.0;
+        const bool need_blend = group.member_blends != nullptr &&
+            group.member_blends[i] != QUANTAPDF_COMPOSER_BLEND_NORMAL;
+        if (need_opacity || need_blend) {
             const std::string name = "/A" + std::to_string(i);
             auto state = QPDFObjectHandle::newDictionary();
-            state.replaceKey("/ca", precise_pdf_number(opacity));
+            if (need_opacity)
+                state.replaceKey("/ca", precise_pdf_number(group.member_opacities[i]));
+            if (need_blend)
+                state.replaceKey("/BM", QPDFObjectHandle::newName(blend_mode_name(group.member_blends[i])));
             states.replaceKey(name, state);
             content += name + " gs\n";
         }
         const auto& branch = ir->resources.clips[group.members[i] - 1u];
         if (append_clip_content(&content, ir, page, branch) != nullptr)
             throw std::logic_error("nested mask groups");
-        if (luminosity)
+        if (rgb) {
+            content += precise_pdf_number(group.member_rgb[3u * i]).unparse() + " " +
+                precise_pdf_number(group.member_rgb[3u * i + 1u]).unparse() + " " +
+                precise_pdf_number(group.member_rgb[3u * i + 2u]).unparse() + " rg\n";
+        } else if (luminosity) {
             content += precise_pdf_number(group.member_luminosities[i]).unparse() + " g\n";
+        }
         content += fill;
     }
     if (!states.getKeys().empty())
         resources.replaceKey("/ExtGState", states);
-    // DeviceGray preserves the projected luminosity of every branch and the backdrop.
+    // DeviceRGB preserves channel-level blending when non-Normal modes are active;
+    // DeviceGray preserves projected luminosity otherwise.
     return make_transparency_group(pdf, content, resources, page, group.knockout != 0,
-        luminosity ? "/DeviceGray" : "/DeviceRGB");
+        luminosity ? (rgb ? "/DeviceRGB" : "/DeviceGray") : "/DeviceRGB", group.isolated != 0);
 }
 
 std::string page_content(
@@ -2520,7 +2533,16 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         auto soft_mask = QPDFObjectHandle::newDictionary();
                         const bool luminosity = mask_group->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
                         soft_mask.replaceKey("/S", QPDFObjectHandle::newName(luminosity ? "/Luminosity" : "/Alpha"));
-                        if (luminosity && mask_group->backdrop_luminosity != 0.0) {
+                        if (luminosity && mask_group->has_backdrop_rgb) {
+                            if (mask_group->backdrop_rgb[0] != 0.0 ||
+                                mask_group->backdrop_rgb[1] != 0.0 ||
+                                mask_group->backdrop_rgb[2] != 0.0) {
+                                auto backdrop = QPDFObjectHandle::newArray();
+                                for (int c = 0; c < 3; ++c)
+                                    backdrop.appendItem(precise_pdf_number(mask_group->backdrop_rgb[c]));
+                                soft_mask.replaceKey("/BC", backdrop);
+                            }
+                        } else if (luminosity && mask_group->backdrop_luminosity != 0.0) {
                             auto backdrop = QPDFObjectHandle::newArray();
                             backdrop.appendItem(precise_pdf_number(mask_group->backdrop_luminosity));
                             soft_mask.replaceKey("/BC", backdrop);

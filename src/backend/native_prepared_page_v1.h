@@ -165,9 +165,13 @@ static inline int qp_prepared_resource_closure(
                 c->transfer!=NULL);
             const size_t minimum=mask?(constant_mask?0u:1u):2u;
             const size_t member_bytes=sizeof(*c->members)+sizeof(double)*(size_t)(
-                (c->member_opacities!=NULL)+(c->member_luminosities!=NULL));
+                (c->member_opacities!=NULL)+(c->member_luminosities!=NULL))+
+                (c->member_blends!=NULL?sizeof(*c->member_blends):0u)+
+                (c->member_rgb!=NULL?3u*sizeof(*c->member_rgb):0u);
             if(c->commands!=NULL || c->command_count!=0u ||
-               ((c->members==NULL)!=(c->member_count==0u)) || c->member_count<minimum ||
+               ((c->members==NULL)!=(c->member_count==0u)) ||
+               ((c->member_blends!=NULL || c->member_rgb!=NULL) && c->member_count==0u) ||
+               c->member_count<minimum ||
                !qp_prepared_bytes(&u->retained_bytes,c->member_count,member_bytes) ||
                !qp_prepared_bytes(&u->retained_bytes,c->transfer_count,sizeof(*c->transfer)) ||
                !qp_prepared_bytes(&u->retained_bytes,c->transfer_data_bytes,1u))

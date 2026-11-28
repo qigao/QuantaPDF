@@ -26,13 +26,16 @@ typedef struct qp_edge {
 typedef struct qp_mask_branch {
     const uint64_t *clip_bits; /* Form BBox, fill path, and the fill's own Clip. */
     double opacity,value;
+    double rgb[3];
+    quantapdf_composer_blend_mode blend;
 } qp_mask_branch;
 
 typedef struct qp_mask_group {
     const qp_mask_branch *branches;
     size_t count,id;
     double backdrop;
-    int knockout,luminosity;
+    double backdrop_rgb[3];
+    int knockout,luminosity,isolated,rgb_space,has_blends;
     const quantapdf_mask_transfer *transfer;
     const unsigned char *transfer_data;
 } qp_mask_group;
@@ -1021,6 +1024,77 @@ static void qp_blend_nonseparable_rgb(quantapdf_composer_blend_mode mode,
     }
 }
 
+static double qp_blend_channel_unit(
+    quantapdf_composer_blend_mode mode, double b, double s)
+{
+    switch (mode) {
+    case QUANTAPDF_COMPOSER_BLEND_NORMAL:
+        return s;
+    case QUANTAPDF_COMPOSER_BLEND_MULTIPLY:
+        return b * s;
+    case QUANTAPDF_COMPOSER_BLEND_SCREEN:
+        return b + s - b * s;
+    case QUANTAPDF_COMPOSER_BLEND_OVERLAY:
+        return b <= 0.5 ? 2.0 * b * s : 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
+    case QUANTAPDF_COMPOSER_BLEND_DARKEN:
+        return b < s ? b : s;
+    case QUANTAPDF_COMPOSER_BLEND_LIGHTEN:
+        return b > s ? b : s;
+    case QUANTAPDF_COMPOSER_BLEND_COLOR_DODGE:
+        if (b <= 0.0) return 0.0;
+        if (s >= 1.0) return 1.0;
+        {
+            const double d = b / (1.0 - s);
+            return d < 1.0 ? d : 1.0;
+        }
+    case QUANTAPDF_COMPOSER_BLEND_COLOR_BURN:
+        if (b >= 1.0) return 1.0;
+        if (s <= 0.0) return 0.0;
+        {
+            const double d = (1.0 - b) / s;
+            return d < 1.0 ? 1.0 - d : 0.0;
+        }
+    case QUANTAPDF_COMPOSER_BLEND_HARD_LIGHT:
+        return s <= 0.5 ? 2.0 * b * s : 1.0 - 2.0 * (1.0 - b) * (1.0 - s);
+    case QUANTAPDF_COMPOSER_BLEND_SOFT_LIGHT:
+        if (s <= 0.5) {
+            return b - (1.0 - 2.0 * s) * b * (1.0 - b);
+        } else {
+            const double d = b <= 0.25 ? ((16.0 * b - 12.0) * b + 4.0) * b : sqrt(b);
+            return b + (2.0 * s - 1.0) * (d - b);
+        }
+    case QUANTAPDF_COMPOSER_BLEND_DIFFERENCE:
+        return fabs(b - s);
+    case QUANTAPDF_COMPOSER_BLEND_EXCLUSION:
+        return b + s - 2.0 * b * s;
+    case QUANTAPDF_COMPOSER_BLEND_HUE:
+    case QUANTAPDF_COMPOSER_BLEND_SATURATION:
+    case QUANTAPDF_COMPOSER_BLEND_COLOR:
+    case QUANTAPDF_COMPOSER_BLEND_LUMINOSITY:
+        break;
+    }
+    abort();
+}
+
+static void qp_blend_rgb_unit(quantapdf_composer_blend_mode mode,
+    const double backdrop_rgb[3], const double source_rgb[3], double out[3])
+{
+    if (mode == QUANTAPDF_COMPOSER_BLEND_NORMAL) {
+        for (unsigned c = 0u; c < 3u; ++c) out[c] = source_rgb[c];
+        return;
+    }
+    if (qp_is_nonseparable_blend(mode)) {
+        qp_blend_nonseparable_rgb(mode, backdrop_rgb, source_rgb, out);
+    } else {
+        for (unsigned c = 0u; c < 3u; ++c)
+            out[c] = qp_blend_channel_unit(mode, backdrop_rgb[c], source_rgb[c]);
+    }
+    for (unsigned c = 0u; c < 3u; ++c) {
+        if (out[c] < 0.0) out[c] = 0.0;
+        else if (out[c] > 1.0) out[c] = 1.0;
+    }
+}
+
 static void qp_blend_mode_sample(unsigned char *dst, const uint64_t color[3],
     uint64_t color_scale, double source, quantapdf_composer_blend_mode mode)
 {
@@ -1623,19 +1697,81 @@ static double qp_mask_group_sample(const qp_mask_group *group,const qp_edge *edg
     const qp_raster_draw *clips,size_t count,double x,double y,size_t *work,size_t cap)
 {
     double value=group->backdrop;
-    for(size_t i=0u;i<group->count;++i) {
-        if(!qp_exact_charge(work,1u,cap))return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
-        // The topmost knockout shape composites directly with the backdrop.
-        const qp_mask_branch *branch=&group->branches[group->knockout?group->count-1u-i:i];
-        const int inside=qp_clip_sample(branch->clip_bits,0u,edges,clips,count,x,y,work,cap);
-        if(inside<0)return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
-        if(inside==0)continue;
-        if(!group->luminosity && branch->opacity==1.0) {
-            value=1.0;
-            break;
+    if(group->luminosity && group->has_blends) {
+        double color[3]={group->backdrop_rgb[0],group->backdrop_rgb[1],group->backdrop_rgb[2]};
+        if(group->isolated) {
+            if(group->knockout) {
+                for(size_t i=0u;i<group->count;++i) {
+                    if(!qp_exact_charge(work,1u,cap))return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+                    const qp_mask_branch *branch=&group->branches[group->count-1u-i];
+                    const int inside=qp_clip_sample(branch->clip_bits,0u,edges,clips,count,x,y,work,cap);
+                    if(inside<0)return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+                    if(inside==0)continue;
+                    /* Isolated knockout blends the topmost shape over transparent backdrop,
+                     * then composites the result over the opaque /BC with Normal. */
+                    for(unsigned c=0u;c<3u;++c)
+                        color[c]=group->backdrop_rgb[c]+branch->opacity*(branch->rgb[c]-group->backdrop_rgb[c]);
+                    break;
+                }
+            } else {
+                double g_alpha=0.0;
+                double g_color[3]={0.0,0.0,0.0};
+                for(size_t i=0u;i<group->count;++i) {
+                    if(!qp_exact_charge(work,1u,cap))return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+                    const qp_mask_branch *branch=&group->branches[i];
+                    const int inside=qp_clip_sample(branch->clip_bits,0u,edges,clips,count,x,y,work,cap);
+                    if(inside<0)return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+                    if(inside==0 || branch->opacity<=0.0)continue;
+                    if(g_alpha<=0.0) {
+                        g_alpha=branch->opacity;
+                        for(unsigned c=0u;c<3u;++c)g_color[c]=branch->rgb[c];
+                    } else {
+                        const double a_s=branch->opacity;
+                        const double a_r=g_alpha+a_s-g_alpha*a_s;
+                        double mixed[3];
+                        qp_blend_rgb_unit(branch->blend,g_color,branch->rgb,mixed);
+                        for(unsigned c=0u;c<3u;++c)
+                            g_color[c]=((1.0-a_s)*g_alpha*g_color[c]+(1.0-g_alpha)*a_s*branch->rgb[c]+
+                                g_alpha*a_s*mixed[c])/a_r;
+                        g_alpha=a_r;
+                    }
+                }
+                for(unsigned c=0u;c<3u;++c)
+                    color[c]=group->backdrop_rgb[c]+g_alpha*(g_color[c]-group->backdrop_rgb[c]);
+            }
+        } else {
+            for(size_t i=0u;i<group->count;++i) {
+                if(!qp_exact_charge(work,1u,cap))return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+                const qp_mask_branch *branch=&group->branches[group->knockout?group->count-1u-i:i];
+                const int inside=qp_clip_sample(branch->clip_bits,0u,edges,clips,count,x,y,work,cap);
+                if(inside<0)return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+                if(inside==0)continue;
+                if(branch->opacity>0.0) {
+                    double mixed[3];
+                    qp_blend_rgb_unit(branch->blend,color,branch->rgb,mixed);
+                    for(unsigned c=0u;c<3u;++c)color[c]+=branch->opacity*(mixed[c]-color[c]);
+                }
+                if(group->knockout)break;
+            }
         }
-        value+=branch->opacity*(branch->value-value);
-        if(group->knockout)break;
+        for(unsigned c=0u;c<3u;++c)color[c]=fmin(fmax(color[c],0.0),1.0);
+        value=group->rgb_space?qp_rgb_lum(color):color[0];
+        value=fmin(fmax(value,0.0),1.0);
+    } else {
+        for(size_t i=0u;i<group->count;++i) {
+            if(!qp_exact_charge(work,1u,cap))return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+            // The topmost knockout shape composites directly with the backdrop.
+            const qp_mask_branch *branch=&group->branches[group->knockout?group->count-1u-i:i];
+            const int inside=qp_clip_sample(branch->clip_bits,0u,edges,clips,count,x,y,work,cap);
+            if(inside<0)return -(double)QUANTAPDF_ERROR_UNSUPPORTED;
+            if(inside==0)continue;
+            if(!group->luminosity && branch->opacity==1.0) {
+                value=1.0;
+                break;
+            }
+            value+=branch->opacity*(branch->value-value);
+            if(group->knockout)break;
+        }
     }
     if(group->transfer==NULL)return value;
     const quantapdf_status status=qp_mask_transfer_eval(group->transfer,group->transfer_data,
@@ -2358,9 +2494,16 @@ static quantapdf_status qp_geometry_compile(
                 row[leaf/64u]|=UINT64_C(1)<<(leaf%64u);++leaf;
             } else if(clip->kind==QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL) {
                 const int luminosity=clip->mask_mode==QUANTAPDF_COMPOSER_SOFT_MASK_LUMINOSITY;
+                const int has_blends=luminosity && clip->member_blends!=NULL;
+                const int rgb_space=luminosity && clip->has_backdrop_rgb!=0;
                 scene_groups[node]=(qp_mask_group){.branches=branches,.count=clip->member_count,
                     .id=node+1u,.backdrop=clip->backdrop_luminosity,
-                    .knockout=clip->knockout,.luminosity=luminosity};
+                    .backdrop_rgb={
+                        rgb_space?clip->backdrop_rgb[0]:clip->backdrop_luminosity,
+                        rgb_space?clip->backdrop_rgb[1]:clip->backdrop_luminosity,
+                        rgb_space?clip->backdrop_rgb[2]:clip->backdrop_luminosity},
+                    .knockout=clip->knockout,.luminosity=luminosity,.isolated=clip->isolated,
+                    .rgb_space=rgb_space,.has_blends=has_blends};
                 if(clip->transfer_count!=0u) {
                     scene_groups[node].transfer=functions;
                     memcpy(functions,clip->transfer,clip->transfer_count*sizeof(*functions));
@@ -2376,9 +2519,14 @@ static quantapdf_status qp_geometry_compile(
                     if(scene_groups[child].id!=0u) {
                         status=QUANTAPDF_ERROR_UNSUPPORTED;goto cleanup;
                     }
+                    const double bval=luminosity?clip->member_luminosities[m]:1.0;
+                    const double r0=clip->member_rgb!=NULL?clip->member_rgb[3u*m]:bval;
+                    const double r1=clip->member_rgb!=NULL?clip->member_rgb[3u*m+1u]:bval;
+                    const double r2=clip->member_rgb!=NULL?clip->member_rgb[3u*m+2u]:bval;
                     *branches++=(qp_mask_branch){scene_masks+child*clip_words,
                         clip->member_opacities!=NULL?clip->member_opacities[m]:1.0,
-                        luminosity?clip->member_luminosities[m]:1.0};
+                        bval,{r0,r1,r2},
+                        clip->member_blends!=NULL?clip->member_blends[m]:QUANTAPDF_COMPOSER_BLEND_NORMAL};
                 }
             } else for(size_t m=0u;m<clip->member_count;++m) {
                 const size_t child=(size_t)clip->members[m]-1u;

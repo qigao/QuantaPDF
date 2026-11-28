@@ -218,15 +218,31 @@ quantapdf_status quantapdf_validate_ir(
             (v->transfer_data_bytes == 0u || v->transfer != NULL), QUANTAPDF_VALIDATION_CLIP, i);
         VALUE(mask ?
             ((v->knockout == 0 || v->knockout == 1) &&
+             (v->isolated == 0 || v->isolated == 1) &&
              (v->member_opacities == NULL ||
               array_valid(v->member_opacities, v->member_count, sizeof(*v->member_opacities)))) :
-            (v->knockout == 0 && v->member_opacities == NULL && v->transfer == NULL),
+            (v->knockout == 0 && v->isolated == 0 && v->member_opacities == NULL && v->transfer == NULL),
             QUANTAPDF_VALIDATION_CLIP, i);
         VALUE(luminosity ?
             (v->backdrop_luminosity >= 0.0 && v->backdrop_luminosity <= 1.0 &&
-             array_valid(v->member_luminosities, v->member_count, sizeof(*v->member_luminosities))) :
+             array_valid(v->member_luminosities, v->member_count, sizeof(*v->member_luminosities)) &&
+             (v->member_blends == NULL ||
+              (v->member_count != 0u &&
+               array_valid(v->member_blends, v->member_count, sizeof(*v->member_blends)))) &&
+             (v->has_backdrop_rgb == 0 || v->has_backdrop_rgb == 1) &&
+             (v->has_backdrop_rgb ?
+                 (v->backdrop_rgb[0] >= 0.0 && v->backdrop_rgb[0] <= 1.0 &&
+                  v->backdrop_rgb[1] >= 0.0 && v->backdrop_rgb[1] <= 1.0 &&
+                  v->backdrop_rgb[2] >= 0.0 && v->backdrop_rgb[2] <= 1.0 &&
+                  (v->member_count == 0u ? v->member_rgb == NULL :
+                   (v->member_rgb != NULL && v->member_count <= SIZE_MAX / (3u * sizeof(*v->member_rgb))))) :
+                 (v->backdrop_rgb[0] == 0.0 && v->backdrop_rgb[1] == 0.0 && v->backdrop_rgb[2] == 0.0 &&
+                  v->member_rgb == NULL))) :
             (v->mask_mode == QUANTAPDF_COMPOSER_SOFT_MASK_ALPHA &&
-             v->backdrop_luminosity == 0.0 && v->member_luminosities == NULL),
+             v->backdrop_luminosity == 0.0 && v->member_luminosities == NULL &&
+             v->has_backdrop_rgb == 0 &&
+             v->backdrop_rgb[0] == 0.0 && v->backdrop_rgb[1] == 0.0 && v->backdrop_rgb[2] == 0.0 &&
+             v->member_blends == NULL && v->member_rgb == NULL),
             QUANTAPDF_VALIDATION_CLIP, i);
         if (v->kind == QUANTAPDF_COMPOSER_CLIP_PATH_INTERNAL) {
             VALUE(quantapdf_validation_path_valid(v->commands, v->command_count) &&
@@ -243,9 +259,19 @@ quantapdf_status quantapdf_validate_ir(
                 if (v->member_opacities != NULL)
                     VALUE(v->member_opacities[j] >= 0.0 && v->member_opacities[j] <= 1.0,
                           QUANTAPDF_VALIDATION_CLIP, i);
-                if (luminosity)
+                if (luminosity) {
                     VALUE(v->member_luminosities[j] >= 0.0 && v->member_luminosities[j] <= 1.0,
                           QUANTAPDF_VALIDATION_CLIP, i);
+                    if (v->member_blends != NULL)
+                        VALUE(v->member_blends[j] >= QUANTAPDF_COMPOSER_BLEND_NORMAL &&
+                              v->member_blends[j] <= QUANTAPDF_COMPOSER_BLEND_LUMINOSITY,
+                              QUANTAPDF_VALIDATION_CLIP, i);
+                    if (v->member_rgb != NULL)
+                        VALUE(v->member_rgb[3u * j] >= 0.0 && v->member_rgb[3u * j] <= 1.0 &&
+                              v->member_rgb[3u * j + 1u] >= 0.0 && v->member_rgb[3u * j + 1u] <= 1.0 &&
+                              v->member_rgb[3u * j + 2u] >= 0.0 && v->member_rgb[3u * j + 2u] <= 1.0,
+                              QUANTAPDF_VALIDATION_CLIP, i);
+                }
             }
         }
     }

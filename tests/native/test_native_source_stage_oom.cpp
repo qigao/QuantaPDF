@@ -4989,6 +4989,7 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
         const std::vector<stream_transfer_fixture>* streams=nullptr;
         bool screen=false;
         bool image=false;
+        bool isolated=false;
     } cases[]={
         {"0 0 4 3 re f",5u,false,false},
         {"0 0 2 3 re f 3 0 -1.5 3 re f*",8u,false,false},
@@ -5017,10 +5018,14 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
          nullptr,nullptr,0u,nullptr,true},
         {"/Half gs 0 0 2 3 re f /Quarter gs 3 0 -1.5 3 re f*",8u,true,false,
          nullptr,nullptr,0u,nullptr,true,true},
+        {".8 g /Half gs 0 0 2 3 re f /Inert gs .5 g /Multiply gs 3 0 -1.5 3 re f*",8u,true,false,
+         "<< /S /Luminosity /BC [.5] >>","/DeviceGray",0u,nullptr,false,false,true},
+        {".8 .2 .5 rg /Multiply gs 0 0 2 3 re f .9 .1 .2 rg /Hue gs 3 0 -1.5 3 re f*",8u,false,false,
+         "<< /S /Luminosity /BC [.2 .4 .9] >>","/DeviceRGB",0u,nullptr,false,false,false},
     };
     for(const auto& test:cases) {
         const bool luminosity=test.space!=nullptr;
-        const auto form=luminosity?luminosity_form(test.space,test.knockout):
+        const auto form=luminosity?luminosity_form(test.space,test.knockout,test.isolated):
             test.knockout?alpha_knockout_form:alpha_form;
         const std::string paint=std::string("/Alpha gs /Precise gs ")+
             (test.screen?"/Screen gs ":"")+
@@ -5086,11 +5091,24 @@ static int mask_group_source_contract(const quantapdf_qpdf_page_limits& defaults
             const auto *copied_group=mask_group(copy);
             CHECK(copied_group!=copy.resources.clips+copy.resources.clip_count &&
                   copied_group->member_count==group->member_count && copied_group->knockout==group->knockout &&
+                  copied_group->isolated==group->isolated &&
+                  copied_group->has_backdrop_rgb==group->has_backdrop_rgb &&
                   (copied_group->member_opacities!=nullptr)==test.partial &&
+                  (copied_group->member_blends!=nullptr)==(group->member_blends!=nullptr) &&
+                  (copied_group->member_rgb!=nullptr)==(group->member_rgb!=nullptr) &&
                   copied_group->mask_mode==group->mask_mode &&
                   copied_group->backdrop_luminosity==group->backdrop_luminosity &&
                   copied_group->transfer_count==test.function_nodes &&
                   copied_group->transfer_data_bytes==group->transfer_data_bytes);
+            if(group->member_blends!=nullptr)
+                CHECK(std::memcmp(group->member_blends,copied_group->member_blends,
+                                  group->member_count*sizeof(*group->member_blends))==0);
+            if(group->has_backdrop_rgb) {
+                for(size_t c=0u;c<3u;++c)
+                    CHECK(std::abs(group->backdrop_rgb[c]-copied_group->backdrop_rgb[c])<=1e-12);
+                for(size_t m=0u;m<group->member_count*3u;++m)
+                    CHECK(std::abs(group->member_rgb[m]-copied_group->member_rgb[m])<=1e-12);
+            }
             if(test.streams!=nullptr)CHECK(std::memcmp(group->transfer_data,copied_group->transfer_data,
                                                      group->transfer_data_bytes)==0);
             for(size_t n=0u;n<test.function_nodes;++n) {
