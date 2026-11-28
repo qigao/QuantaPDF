@@ -638,7 +638,10 @@ struct admission {
     size_t texample_orange_count=0u,texample_terminal_n=0u;
     bool texample_public_eligible=false;
     bool text_outline_swap_axes=false;
+    uint32_t next_text_knockout_group=0u;
     std::vector<quantapdf::detail::source_outline_paint> text_outline_paints={};
+    std::set<QPDFObjGen> active_forms;
+    size_t form_invocations=0u;
     admission(Obj page_resources,const quantapdf_qpdf_page_limits& page_limits,
               size_t width,size_t height) :
         resources(page_resources),limits(page_limits),page_w(width),page_h(height) {}
@@ -949,19 +952,16 @@ quantapdf_status source_text_paint(void *user,clip_identity clip,clip_identity m
       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
-quantapdf_status source_image_paint(void *user,Obj image,
-    const matrix& ctm,const std::array<double,3>& fill,clip_identity clip,clip_identity mask,double opacity,
-    quantapdf_composer_blend_mode blend)
+uint32_t source_argb_from_rgb(const std::array<double,3>& fill)
 {
-    auto& source=*static_cast<admission*>(user);
-    try {
-        source.execute(image,ctm,fill);
-        source.scoped_paints.push_back({source.image_clip(image,clip,mask),opacity,blend});
-        return QUANTAPDF_OK;
-    } catch(rejected const& e){return e.status;}
-      catch(quantapdf::detail::image_stream_error const& e){return e.status;}
-      catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
-      catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
+    uint32_t rgb=0u;
+    for(size_t i=0u;i<fill.size();++i) {
+        admit(std::isfinite(fill[i]) && fill[i]>=0.0 && fill[i]<=1.0,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        const auto component=static_cast<uint32_t>(std::floor(fill[i]*255.0+0.5));
+        rgb|=component << (16u-8u*i);
+    }
+    return UINT32_C(0xff000000)|rgb;
 }
 
 class bounded_content_counter final : public Pipeline {
@@ -1051,10 +1051,21 @@ public:
                  [](void *u,clip_identity clip,clip_identity mask,double opacity,quantapdf_composer_blend_mode mode){
                      return source_text_paint(&static_cast<page_content_reader*>(u)->target,clip,mask,opacity,mode);
                  },
-                 [](void *u,Obj image,const matrix& ctm,const std::array<double,3>& fill,
-                    clip_identity clip,clip_identity mask,double opacity,quantapdf_composer_blend_mode mode){
-                     return source_image_paint(&static_cast<page_content_reader*>(u)->target,
-                         image,ctm,fill,clip,mask,opacity,mode);
+                 [](void *u,Obj xobject,const matrix& ctm,const std::array<double,3>& fill,
+                    clip_identity clip,clip_identity mask,double opacity,quantapdf_composer_blend_mode mode,
+                    bool knockout){
+                     auto& self=*static_cast<page_content_reader*>(u);
+                     try {
+                         const uint32_t argb=source_argb_from_rgb(fill);
+                         self.drain_outline_paints();
+                         self.execute_xobject(xobject,ctm,fill,argb,clip,mask,opacity,mode,knockout);
+                         return QUANTAPDF_OK;
+                     } catch(rejected const& e){return e.status;}
+                       catch(quantapdf::detail::image_stream_error const& e){return e.status;}
+                       catch(std::bad_alloc const&){return QUANTAPDF_ERROR_NOMEM;}
+                       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
+                       catch(QPDFExc const& e){return quantapdf_status_from_qpdf(e);}
+                       catch(std::runtime_error const&){return QUANTAPDF_ERROR_FORMAT;}
                  },
                  text_graphics_state,text_path},outline_reader);
             admit(setup==QUANTAPDF_OK,setup);
@@ -1209,7 +1220,7 @@ public:
             /* An exact page-height negative-Y authoring CTM selects
              * only the *candidate*. It does NOT make a page paintable;
              * the complete original 3GS/7Clip shape is still mandatory. */
-            if(!in_mask_group && !target.has_mask_groups && !target.has_paint_transparency &&
+            if(!in_mask_group && !in_form && !target.has_mask_groups && !target.has_paint_transparency &&
                !target.three_branch_candidate && !target.clip_completed &&
                target.order.empty() && target.draws.empty() &&
                target.exact_page_w==600.0 &&
@@ -1261,9 +1272,8 @@ public:
             admit(xobjects.isDictionary(),QUANTAPDF_ERROR_FORMAT);
             Obj named=xobjects.getKey(args[0].getName());
             admit(!named.isNull(),QUANTAPDF_ERROR_FORMAT);
-            target.execute(named,current,quantapdf::detail::source_rgb_channels(fill_argb));
-            QP_SOURCE_STAGE_ARM(6u);
-            target.scoped_paints.push_back({target.image_clip(named,clip_active,mask_active),fill_alpha,blend});
+            execute_xobject(named,current,quantapdf::detail::source_rgb_channels(fill_argb),
+                fill_argb,clip_active,mask_active,fill_alpha,blend,text_knockout);
         } else if(op=="rg") {
             admit(args.size()==3u);
             uint32_t rgb=0u;
@@ -1431,6 +1441,7 @@ public:
             append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x,y+h);
             close_path();
         } else if(op=="S") {
+            admit(!in_form,QUANTAPDF_ERROR_UNSUPPORTED);
             if(target.texample_original_profile) {
                 admit(args.empty() &&
                       (target.texample_stage==2u ||
@@ -1476,6 +1487,7 @@ public:
             clear_path();
             }
         } else if(op=="s") {
+            admit(!in_form,QUANTAPDF_ERROR_UNSUPPORTED);
             /* PDF s implicitly closes then strokes a single triangle.
              * Only one actual W/n Clip, 1px butt/miter/solid and an
              * exact DeviceRGB color can be passed to the EXISTING C11
@@ -1644,7 +1656,7 @@ public:
         if(outline_reader) {
             const auto status=outline_reader->finish();admit(status==QUANTAPDF_OK,status);
             admit(pending_path.empty() && !clip_pending,QUANTAPDF_ERROR_FORMAT);
-            target.text_outline_paints=outline_reader->paints();
+            drain_outline_paints();
             return;
         }
         admit(args.empty() && stack.empty() &&
@@ -1668,8 +1680,136 @@ public:
                   QUANTAPDF_ERROR_UNSUPPORTED);
     }
 private:
+    static constexpr size_t max_form_depth=32u;
+    static constexpr size_t max_form_invocations=4096u;
+
     page_content_reader(admission& group,size_t& bytes,const matrix& ctm) :
-        target(group),content_bytes(bytes),in_mask_group(true),current(ctm) {}
+        target(group),content_bytes(bytes),in_mask_group(true),current(ctm),
+        texample_prefix_possible(false) {}
+
+    page_content_reader(admission& owner,size_t& bytes,size_t depth,const matrix& ctm,
+        uint32_t argb,clip_identity clip,clip_identity mask,double opacity,
+        quantapdf_composer_blend_mode mode,bool knockout) :
+        target(owner),content_bytes(bytes),in_form(true),form_depth(depth),
+        clip_active(clip),mask_active(mask),current(ctm),fill_argb(argb),
+        fill_alpha(opacity),blend(mode),text_knockout(knockout),
+        texample_prefix_possible(false) {}
+
+    void drain_outline_paints()
+    {
+        if(!outline_reader)return;
+        std::vector<quantapdf::detail::source_outline_paint> batch;
+        outline_reader->drain_paints(batch);
+        const uint32_t base=target.next_text_knockout_group;
+        uint32_t local_max=0u;
+        for(auto& paint:batch) {
+            if(paint.knockout_group!=0u) {
+                admit(paint.knockout_group<=std::numeric_limits<uint32_t>::max()-base,
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+                if(paint.knockout_group>local_max)local_max=paint.knockout_group;
+                paint.knockout_group+=base;
+            }
+            target.text_outline_paints.push_back(std::move(paint));
+        }
+        target.next_text_knockout_group=base+local_max;
+    }
+
+    void execute_xobject(Obj named,const matrix& ctm,const std::array<double,3>& fill,
+        uint32_t argb,clip_identity clip,clip_identity mask,double opacity,
+        quantapdf_composer_blend_mode mode,bool knockout)
+    {
+        admit(!named.isNull() && named.isStream(),QUANTAPDF_ERROR_FORMAT);
+        Obj dict=named.getDict(), subtype=dict.getKey("/Subtype");
+        admit(subtype.isName(),QUANTAPDF_ERROR_FORMAT);
+        if(subtype.getName()=="/Image") {
+            target.execute(named,ctm,fill);
+            QP_SOURCE_STAGE_ARM(6u);
+            target.scoped_paints.push_back({target.image_clip(named,clip,mask),opacity,mode});
+            return;
+        }
+        admit(subtype.getName()=="/Form",QUANTAPDF_ERROR_UNSUPPORTED);
+        execute_form_xobject(named,ctm,argb,clip,mask,opacity,mode,knockout);
+    }
+
+    void execute_form_xobject(Obj form,const matrix& ctm,uint32_t argb,
+        clip_identity clip,clip_identity mask,double opacity,
+        quantapdf_composer_blend_mode mode,bool knockout)
+    {
+        admit(!in_mask_group && target.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
+        admit(form_depth<max_form_depth && target.form_invocations<max_form_invocations,
+              QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj dict=form.getDict(), type=dict.getKey("/Type"), form_type=dict.getKey("/FormType");
+        if(!type.isNull()) {
+            admit(type.isName(),QUANTAPDF_ERROR_FORMAT);
+            admit(type.getName()=="/XObject",QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+        if(!form_type.isNull()) {
+            admit(form_type.isInteger(),QUANTAPDF_ERROR_FORMAT);
+            admit(form_type.getIntValue()==1,QUANTAPDF_ERROR_UNSUPPORTED);
+        }
+        admit(dict.getKey("/Group").isNull() && dict.getKey("/OC").isNull() &&
+              dict.getKey("/Ref").isNull() && dict.getKey("/OPI").isNull() &&
+              dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
+              dict.getKey("/FDecodeParms").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj bbox=dict.getKey("/BBox");
+        admit(bbox.isArray() && bbox.getArrayNItems()==4,QUANTAPDF_ERROR_FORMAT);
+        const double x0=finite_number(bbox.getArrayItem(0)),y0=finite_number(bbox.getArrayItem(1)),
+                     x1=finite_number(bbox.getArrayItem(2)),y1=finite_number(bbox.getArrayItem(3));
+        Obj transform=dict.getKey("/Matrix");
+        matrix placement=identity;
+        if(!transform.isNull()) {
+            admit(transform.isArray() && transform.getArrayNItems()==6,QUANTAPDF_ERROR_FORMAT);
+            for(size_t i=0u;i<placement.size();++i)
+                placement[i]=finite_number(transform.getArrayItem(static_cast<int>(i)));
+        }
+        Obj form_resources=dict.getKey("/Resources");
+        if(!form_resources.isNull()) {
+            admit(form_resources.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+            Obj color_spaces=form_resources.getKey("/ColorSpace");
+            if(!color_spaces.isNull()) {
+                admit(color_spaces.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+                admit(color_spaces.getKey("/DefaultRGB").isNull() &&
+                      color_spaces.getKey("/DefaultGray").isNull(),
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+        } else {
+            form_resources=target.resources;
+        }
+        struct active_form_guard {
+            std::set<QPDFObjGen>& active;
+            QPDFObjGen key;
+            bool armed=false;
+            ~active_form_guard(){if(armed)active.erase(key);}
+        } cycle_guard{target.active_forms,{},false};
+        if(form.isIndirect()) {
+            cycle_guard.key=form.getObjGen();
+            admit(target.active_forms.insert(cycle_guard.key).second,QUANTAPDF_ERROR_FORMAT);
+            cycle_guard.armed=true;
+        }
+        struct resource_guard {
+            admission& owner;
+            Obj saved;
+            ~resource_guard(){owner.resources=saved;}
+        } resources_guard{target,target.resources};
+        target.resources=form_resources;
+        ++target.form_invocations;
+
+        size_t form_preflight_bytes=content_bytes;
+        preflight_bounded_content_stream(form,form_preflight_bytes,target.limits.max_content_bytes);
+
+        page_content_reader child(target,content_bytes,form_depth+1u,concat(ctm,placement),
+            argb,clip,mask,opacity,mode,knockout);
+        child.begin_contour();
+        child.append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x0,y0);
+        child.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x1,y0);
+        child.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x1,y1);
+        child.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x0,y1);
+        child.close_path();
+        child.clip_active=target.define_clip(std::move(child.pending_path),
+            QUANTAPDF_COMPOSER_FILL_NONZERO,clip);
+        child.clear_path();
+        form.parseAsContents(&child);
+    }
 
     void apply_gs(Obj name,const matrix& ctm,clip_identity& active,double& opacity,
         quantapdf_composer_blend_mode& mode,bool *knockout)
@@ -1997,7 +2137,7 @@ private:
             current[0]==1.0 && current[1]==0.0 &&
             current[2]==0.0 && current[3]==-1.0 &&
             current[4]==0.0 && current[5]==600.0;
-        admit(in_mask_group || y_inverse ||
+        admit(in_mask_group || in_form || y_inverse ||
               (current[0]>0.0 && current[3]>0.0 &&
                current[1]==0.0 && current[2]==0.0),
               QUANTAPDF_ERROR_UNSUPPORTED);
@@ -2088,6 +2228,8 @@ private:
     admission& target;
     size_t& content_bytes;
     bool in_mask_group=false;
+    bool in_form=false;
+    size_t form_depth=0u;
     clip_identity clip_active=0u,mask_active=0u;
     bool clip_pending=false;
     quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;

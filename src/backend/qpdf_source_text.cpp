@@ -746,7 +746,7 @@ public:
             count(1);supported(!in_text && p.source_mixed.on_image!=nullptr);
             const Obj image=resource("/XObject",args[0]);
             const auto result=p.source_mixed.on_image(
-                p.source_mixed.user,image,g.ctm,g.fill,g.clip_id,g.mask_clip_id,g.opacity,g.blend);
+                p.source_mixed.user,image,g.ctm,g.fill,g.clip_id,g.mask_clip_id,g.opacity,g.blend,g.text_knockout);
             need(result==QUANTAPDF_OK,result);
         } else if(op=="Do") { count(1); p.draw(resource("/XObject",args[0]),resources,g,depth); }
         else if(op=="gs" && p.outline_mode) {
@@ -913,6 +913,12 @@ public:
     quantapdf_status consume(Obj object) override {return outline_result([&]{tokens.handleObject(object);});}
     quantapdf_status finish() override {return outline_result([&]{tokens.handleEOF();});}
     const std::vector<source_outline_paint>& paints() const override {return p.outline_paints;}
+    void drain_paints(std::vector<source_outline_paint>& out) override
+    {
+        out.clear();
+        out.swap(p.outline_paints);
+        p.next_knockout_group=0u;
+    }
 };
 }
 quantapdf_status make_source_text_outlines(
