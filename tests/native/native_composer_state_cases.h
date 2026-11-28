@@ -93,7 +93,7 @@ inline int svg_records(const std::string& filename)
     return EXIT_SUCCESS;
 }
 
-static int separable_blend_round_trip(const std::string& filename)
+static int blend_mode_round_trip(const std::string& filename)
 {
     struct blend_case {
         quantapdf_composer_blend_mode mode;
@@ -104,21 +104,25 @@ static int separable_blend_round_trip(const std::string& filename)
         int exp_g;
         int exp_b;
     };
-    const std::array<blend_case,6> cases{{
+    const std::array<blend_case,10> cases{{
         {QUANTAPDF_COMPOSER_BLEND_COLOR_DODGE,"/ColorDodge",UINT32_C(0xff333333),UINT32_C(0xff6699cc),85,128,255},
         {QUANTAPDF_COMPOSER_BLEND_COLOR_BURN,"/ColorBurn",UINT32_C(0xff99cc33),UINT32_C(0xffcc9933),128,170,0},
         {QUANTAPDF_COMPOSER_BLEND_HARD_LIGHT,"/HardLight",UINT32_C(0xff3399cc),UINT32_C(0xffcc6633),173,122,82},
         {QUANTAPDF_COMPOSER_BLEND_SOFT_LIGHT,"/SoftLight",UINT32_C(0xff3399cc),UINT32_C(0xffcc6633),89,141,180},
         {QUANTAPDF_COMPOSER_BLEND_DIFFERENCE,"/Difference",UINT32_C(0xff3399cc),UINT32_C(0xffcc6633),153,51,153},
-        {QUANTAPDF_COMPOSER_BLEND_EXCLUSION,"/Exclusion",UINT32_C(0xff3399cc),UINT32_C(0xffcc6633),173,133,173}
+        {QUANTAPDF_COMPOSER_BLEND_EXCLUSION,"/Exclusion",UINT32_C(0xff3399cc),UINT32_C(0xffcc6633),173,133,173},
+        {QUANTAPDF_COMPOSER_BLEND_HUE,"/Hue",UINT32_C(0xff3366e6),UINT32_C(0xffe69966),184,76,5},
+        {QUANTAPDF_COMPOSER_BLEND_SATURATION,"/Saturation",UINT32_C(0xff3366e6),UINT32_C(0xffe69966),65,102,193},
+        {QUANTAPDF_COMPOSER_BLEND_COLOR,"/Color",UINT32_C(0xff3366e6),UINT32_C(0xffe69966),160,83,32},
+        {QUANTAPDF_COMPOSER_BLEND_LUMINOSITY,"/Luminosity",UINT32_C(0xff3366e6),UINT32_C(0xffe69966),138,171,255}
     }};
     quantapdf_composer *composer=nullptr;
     OK(quantapdf_composer_create(nullptr,&composer));
-    const quantapdf_composer_page_options page_options{sizeof(page_options),180.0f,40.0f,UINT32_C(0xffffffff)};
+    const quantapdf_composer_page_options page_options{sizeof(page_options),300.0f,40.0f,UINT32_C(0xffffffff)};
     size_t page_index=SIZE_MAX;
     OK(quantapdf_composer_add_page(composer,&page_options,&page_index));
     CHECK(page_index==0u);
-    std::array<quantapdf_composer_graphics_state_id,6> gs_ids{};
+    std::array<quantapdf_composer_graphics_state_id,10> gs_ids{};
     for(size_t i=0u;i<cases.size();++i) {
         const quantapdf_composer_graphics_state_options gs{1.0f,1.0f,cases[i].mode,0u,0u,QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT};
         OK(quantapdf_composer_add_graphics_state(composer,&gs,&gs_ids[i]));
@@ -150,7 +154,7 @@ static int separable_blend_round_trip(const std::string& filename)
     OK(quantapdf_render_page_with_options(page,&render,&bitmap));
     int width=0,height=0,stride=0,components=0;
     OK(quantapdf_bitmap_dimensions(bitmap,&width,&height,&stride,&components));
-    CHECK(width==180 && height==40 && components==3);
+    CHECK(width==300 && height==40 && components==3);
     const unsigned char *pixels=nullptr;size_t pixel_bytes=0u;
     OK(quantapdf_bitmap_data(bitmap,&pixels,&pixel_bytes));
     CHECK(pixel_bytes==static_cast<size_t>(stride)*static_cast<size_t>(height));
@@ -224,7 +228,7 @@ static int composer_state_cases(const std::string& filename)
         CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
         invalid=state;invalid.text_knockout=static_cast<quantapdf_composer_text_knockout>(99);rejected=99u;
         CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
-        invalid=state;invalid.blend_mode=static_cast<quantapdf_composer_blend_mode>(12);rejected=99u;
+        invalid=state;invalid.blend_mode=static_cast<quantapdf_composer_blend_mode>(16);rejected=99u;
         CHECK(quantapdf_composer_add_graphics_state(composer,&invalid,&rejected)==QUANTAPDF_ERROR_ARGUMENT && rejected==0u);
         OK(quantapdf_composer_add_graphics_state(composer,&state,&id));OK(quantapdf_composer_add_graphics_state(composer,&state,&duplicate));CHECK(id==duplicate);
         if(overlap) {
@@ -313,7 +317,7 @@ static int composer_state_cases(const std::string& filename)
     }
     CHECK(renders==36u && refusals==18u && serialized==18u);
     CHECK(svg_records(filename)==EXIT_SUCCESS);
-    CHECK(separable_blend_round_trip(filename)==EXIT_SUCCESS);
+    CHECK(blend_mode_round_trip(filename)==EXIT_SUCCESS);
     std::printf("Current Composer state records: %zu reopened page resource graphs, %zu analytic RGB renders including Multiply and text knockout, %zu native stroke-alpha/nested-SMask refusals; clip/mask IDs, transforms, dedup, builder errors and retired owners passed\n",serialized,renders,refusals);
     std::puts("SVG path/group/use alpha masks and path luminosity mask retain current graphics-state fields in reopened PDFs; native transparency explicitly unsupported");
     return EXIT_SUCCESS;

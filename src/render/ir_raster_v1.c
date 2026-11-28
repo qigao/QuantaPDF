@@ -908,11 +908,118 @@ static double qp_blend_channel(
         return ((double)backdrop+source)*255.0-2.0*product;
     case QUANTAPDF_COMPOSER_BLEND_NORMAL:
         return source*255.0;
+    case QUANTAPDF_COMPOSER_BLEND_HUE:
+    case QUANTAPDF_COMPOSER_BLEND_SATURATION:
+    case QUANTAPDF_COMPOSER_BLEND_COLOR:
+    case QUANTAPDF_COMPOSER_BLEND_LUMINOSITY:
+        break;
     }
     abort();
 }
 
-static void qp_blend_separable_sample(unsigned char *dst, const uint64_t color[3],
+static double qp_rgb_lum(const double c[3])
+{
+    return 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2];
+}
+
+static void qp_rgb_clip_color(double c[3])
+{
+    const double l = qp_rgb_lum(c);
+    double n = c[0] < c[1] ? c[0] : c[1];
+    double x = c[0] > c[1] ? c[0] : c[1];
+    if (c[2] < n) n = c[2];
+    if (c[2] > x) x = c[2];
+    if (n < 0.0) {
+        const double denom = l - n;
+        for (unsigned i = 0u; i < 3u; ++i) {
+            c[i] = denom > 0.0 ? l + (((c[i] - l) * l) / denom) : l;
+        }
+    }
+    if (x > 1.0) {
+        const double denom = x - l;
+        for (unsigned i = 0u; i < 3u; ++i) {
+            c[i] = denom > 0.0 ? l + (((c[i] - l) * (1.0 - l)) / denom) : l;
+        }
+    }
+    for (unsigned i = 0u; i < 3u; ++i) {
+        if (c[i] < 0.0) c[i] = 0.0;
+        else if (c[i] > 1.0) c[i] = 1.0;
+    }
+}
+
+static void qp_rgb_set_lum(const double base[3], double l, double out[3])
+{
+    const double d = l - qp_rgb_lum(base);
+    for (unsigned i = 0u; i < 3u; ++i) {
+        out[i] = base[i] + d;
+    }
+    qp_rgb_clip_color(out);
+}
+
+static double qp_rgb_sat(const double c[3])
+{
+    double n = c[0] < c[1] ? c[0] : c[1];
+    double x = c[0] > c[1] ? c[0] : c[1];
+    if (c[2] < n) n = c[2];
+    if (c[2] > x) x = c[2];
+    return x - n;
+}
+
+static void qp_rgb_set_sat(const double base[3], double s, double out[3])
+{
+    unsigned order[3] = {0u, 1u, 2u};
+    unsigned tmp;
+    if (base[order[0]] > base[order[1]]) {
+        tmp = order[0]; order[0] = order[1]; order[1] = tmp;
+    }
+    if (base[order[1]] > base[order[2]]) {
+        tmp = order[1]; order[1] = order[2]; order[2] = tmp;
+    }
+    if (base[order[0]] > base[order[1]]) {
+        tmp = order[0]; order[0] = order[1]; order[1] = tmp;
+    }
+    out[order[0]] = 0.0;
+    if (base[order[2]] > base[order[0]]) {
+        out[order[1]] =
+            ((base[order[1]] - base[order[0]]) * s) / (base[order[2]] - base[order[0]]);
+        out[order[2]] = s;
+    } else {
+        out[order[1]] = 0.0;
+        out[order[2]] = 0.0;
+    }
+}
+
+static int qp_is_nonseparable_blend(quantapdf_composer_blend_mode mode)
+{
+    return mode >= QUANTAPDF_COMPOSER_BLEND_HUE &&
+        mode <= QUANTAPDF_COMPOSER_BLEND_LUMINOSITY;
+}
+
+static void qp_blend_nonseparable_rgb(quantapdf_composer_blend_mode mode,
+    const double backdrop_rgb[3], const double source_rgb[3], double out[3])
+{
+    double sat[3];
+    switch (mode) {
+    case QUANTAPDF_COMPOSER_BLEND_HUE:
+        qp_rgb_set_sat(source_rgb, qp_rgb_sat(backdrop_rgb), sat);
+        qp_rgb_set_lum(sat, qp_rgb_lum(backdrop_rgb), out);
+        return;
+    case QUANTAPDF_COMPOSER_BLEND_SATURATION:
+        qp_rgb_set_sat(backdrop_rgb, qp_rgb_sat(source_rgb), sat);
+        qp_rgb_set_lum(sat, qp_rgb_lum(backdrop_rgb), out);
+        return;
+    case QUANTAPDF_COMPOSER_BLEND_COLOR:
+        qp_rgb_set_lum(source_rgb, qp_rgb_lum(backdrop_rgb), out);
+        return;
+    case QUANTAPDF_COMPOSER_BLEND_LUMINOSITY:
+        qp_rgb_set_lum(backdrop_rgb, qp_rgb_lum(source_rgb), out);
+        return;
+    default:
+        abort();
+    }
+}
+
+static void qp_blend_mode_sample(unsigned char *dst, const uint64_t color[3],
     uint64_t color_scale, double source, quantapdf_composer_blend_mode mode)
 {
     const double backdrop=dst[3]/255.0;
@@ -920,12 +1027,38 @@ static void qp_blend_separable_sample(unsigned char *dst, const uint64_t color[3
     const double blend=backdrop*source;
     const double unblended=(1.0-backdrop)*source;
     const double alpha=keep+source;
+    double channels[3];
+    double mixed[3];
     for(unsigned c=0u;c<3u;++c) {
-        const double channel=(double)color[c]/(double)color_scale;
-        const double mixed=qp_blend_channel(mode,dst[c],channel)/255.0;
-        dst[c]=(unsigned char)((keep*dst[c]+blend*mixed+unblended*channel)/alpha+0.5);
+        channels[c]=(double)color[c]/(double)color_scale;
     }
-    dst[3]=(unsigned char)(255.0*alpha+0.5);
+    if(qp_is_nonseparable_blend(mode)) {
+        const double b_rgb[3]={
+            (double)dst[0]/255.0,(double)dst[1]/255.0,(double)dst[2]/255.0};
+        const double s_rgb[3]={
+            channels[0]/255.0,channels[1]/255.0,channels[2]/255.0};
+        double blended_rgb[3];
+        qp_blend_nonseparable_rgb(mode,b_rgb,s_rgb,blended_rgb);
+        for(unsigned c=0u;c<3u;++c) {
+            mixed[c]=blended_rgb[c]*255.0;
+        }
+    } else {
+        for(unsigned c=0u;c<3u;++c) {
+            mixed[c]=qp_blend_channel(mode,dst[c],channels[c])/255.0;
+        }
+    }
+    for(unsigned c=0u;c<3u;++c) {
+        double value=(keep*dst[c]+blend*mixed[c]+unblended*channels[c])/alpha;
+        if(value<0.0)value=0.0;
+        else if(value>255.0)value=255.0;
+        dst[c]=(unsigned char)(value+0.5);
+    }
+    {
+        double out_alpha=255.0*alpha;
+        if(out_alpha<0.0)out_alpha=0.0;
+        else if(out_alpha>255.0)out_alpha=255.0;
+        dst[3]=(unsigned char)(out_alpha+0.5);
+    }
 }
 
 static void qp_blend_solid_pixel(
@@ -936,7 +1069,7 @@ static void qp_blend_solid_pixel(
         qp_blend_covered_pixel(dst,draw->color,covered);
     } else if(covered!=0.0) {
         const uint64_t color[3]={(draw->color>>16u)&255u,(draw->color>>8u)&255u,draw->color&255u};
-        qp_blend_separable_sample(dst,color,1u,covered/QP_TOTAL_SAMPLES,draw->blend);
+        qp_blend_mode_sample(dst,color,1u,covered/QP_TOTAL_SAMPLES,draw->blend);
     }
 }
 
@@ -950,7 +1083,7 @@ static void qp_blend_image_sample(unsigned char *dst, const uint64_t color[3],
     uint64_t scale, double covered, quantapdf_composer_blend_mode mode)
 {
     if(mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL && dst[3]!=0u) {
-        qp_blend_separable_sample(dst,color,scale,covered/QP_TOTAL_SAMPLES,mode);
+        qp_blend_mode_sample(dst,color,scale,covered/QP_TOTAL_SAMPLES,mode);
         return;
     }
     const unsigned samples = (unsigned)covered;
@@ -980,7 +1113,7 @@ static void qp_blend_alpha_image_sample(unsigned char *dst, const uint64_t color
     if (alpha.sum == 0u) return;
     if(mode!=QUANTAPDF_COMPOSER_BLEND_NORMAL && dst[3]!=0u) {
         const double opacity=(double)alpha.sum/(double)(alpha.weight*alpha.maximum);
-        qp_blend_separable_sample(dst,color,alpha.sum*color_scale,
+        qp_blend_mode_sample(dst,color,alpha.sum*color_scale,
             opacity*covered/QP_TOTAL_SAMPLES,mode);
         return;
     }
@@ -1166,7 +1299,7 @@ static int qp_scene_resources(const quantapdf_ir *ir,size_t *leaf_count)
         if(g->clip_id>r->clip_count || g->soft_mask_id!=0u ||
            !(g->fill_alpha>=0.0 && g->fill_alpha<=1.0) ||
            g->stroke_alpha!=1.0f || g->blend_mode<QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-           g->blend_mode>QUANTAPDF_COMPOSER_BLEND_EXCLUSION)return 0;
+           g->blend_mode>QUANTAPDF_COMPOSER_BLEND_LUMINOSITY)return 0;
     }
     return 1;
 }

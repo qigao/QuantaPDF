@@ -895,7 +895,7 @@ quantapdf_status quantapdf_composer_add_graphics_state(
         !isfinite(options->stroke_alpha) ||
         options->stroke_alpha < 0.0f || options->stroke_alpha > 1.0f ||
         options->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-        options->blend_mode > QUANTAPDF_COMPOSER_BLEND_EXCLUSION ||
+        options->blend_mode > QUANTAPDF_COMPOSER_BLEND_LUMINOSITY ||
         options->text_knockout < QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_INHERIT ||
         options->text_knockout > QUANTAPDF_COMPOSER_TEXT_KNOCKOUT_DISABLED ||
         !quantapdf_clip_id_valid(
