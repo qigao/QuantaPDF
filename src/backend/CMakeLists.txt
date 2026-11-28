@@ -2,6 +2,7 @@ target_sources(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/builtin_backend.c"
   "${CMAKE_CURRENT_SOURCE_DIR}/builtin_page_view.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_document.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_security_rewrite.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_images.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_image_stream.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/qpdf_page_ir.cpp"

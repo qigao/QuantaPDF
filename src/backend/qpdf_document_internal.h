@@ -34,4 +34,9 @@ void quantapdf_qpdf_pdf_point_to_public(
     quantapdf_qpdf_page_geometry const& geometry, double raw_x, double raw_y,
     double *out_x, double *out_y);
 
+quantapdf_status quantapdf_qpdf_security_signature_dictionary(
+    QPDFObjectHandle object, bool *out_is_signature);
+quantapdf_status quantapdf_qpdf_audit_document(
+    QPDF& pdf, size_t source_size, uint32_t *findings);
+
 #endif
