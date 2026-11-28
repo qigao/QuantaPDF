@@ -443,7 +443,7 @@ static quantapdf_status intern_graphics_state(
         graphics->stroke_alpha < 0.0 || graphics->stroke_alpha > 1.0)
         return QUANTAPDF_ERROR_FORMAT;
     if (graphics->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-        graphics->blend_mode > QUANTAPDF_COMPOSER_BLEND_EXCLUSION)
+        graphics->blend_mode > QUANTAPDF_COMPOSER_BLEND_LUMINOSITY)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (clip == 0 && graphics->fill_alpha == 1.0 &&
         graphics->stroke_alpha == 1.0 &&
