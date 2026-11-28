@@ -89,6 +89,14 @@ static int optional_clip_values_equal(const double *a, const double *b, size_t c
     return a == b || (a != NULL && b != NULL && bytes_equal(a, b, count * sizeof(*a)));
 }
 
+static int optional_clip_blends_equal(
+    const quantapdf_composer_blend_mode *a,
+    const quantapdf_composer_blend_mode *b,
+    size_t count)
+{
+    return a == b || (a != NULL && b != NULL && bytes_equal(a, b, count * sizeof(*a)));
+}
+
 static int mask_transfer_equal(const quantapdf_mask_transfer *a,
     const quantapdf_mask_transfer *b, size_t count)
 {
@@ -120,14 +128,18 @@ static int clip_equal(const quantapdf_composer_clip_state *a,
     if (a->kind == QUANTAPDF_COMPOSER_CLIP_INTERSECTION_INTERNAL ||
         a->kind == QUANTAPDF_COMPOSER_CLIP_MASK_GROUP_INTERNAL)
         return a->member_count == b->member_count && a->knockout == b->knockout &&
+            a->isolated == b->isolated && a->has_backdrop_rgb == b->has_backdrop_rgb &&
             a->mask_mode == b->mask_mode && a->backdrop_luminosity == b->backdrop_luminosity &&
+            bytes_equal(a->backdrop_rgb, b->backdrop_rgb, sizeof(a->backdrop_rgb)) &&
             a->transfer_count == b->transfer_count &&
             mask_transfer_equal(a->transfer, b->transfer, a->transfer_count) &&
             a->transfer_data_bytes == b->transfer_data_bytes &&
             bytes_equal(a->transfer_data, b->transfer_data, a->transfer_data_bytes) &&
             bytes_equal(a->members, b->members, a->member_count * sizeof(*a->members)) &&
             optional_clip_values_equal(a->member_opacities, b->member_opacities, a->member_count) &&
-            optional_clip_values_equal(a->member_luminosities, b->member_luminosities, a->member_count);
+            optional_clip_values_equal(a->member_luminosities, b->member_luminosities, a->member_count) &&
+            optional_clip_blends_equal(a->member_blends, b->member_blends, a->member_count) &&
+            optional_clip_values_equal(a->member_rgb, b->member_rgb, a->member_count * 3u);
     if (a->command_count != b->command_count || a->fill_rule != b->fill_rule ||
         !transform_equal(&a->transform, &b->transform))
         return 0;
@@ -449,6 +461,8 @@ static void drop_clip(quantapdf_composer_clip_state *value)
     free(value->members);
     free(value->member_opacities);
     free(value->member_luminosities);
+    free(value->member_blends);
+    free(value->member_rgb);
     free(value->transfer);
     free(value->transfer_data);
     memset(value, 0, sizeof(*value));
@@ -491,7 +505,9 @@ quantapdf_status quantapdf_resource_intern_clip(
             bytes += candidate->member_count * sizeof(*candidate->members);
     }
     const size_t sample_bytes = sizeof(double) * (size_t)(
-        (candidate->member_opacities != NULL) + (candidate->member_luminosities != NULL));
+        (candidate->member_opacities != NULL) + (candidate->member_luminosities != NULL)) +
+        (candidate->member_blends != NULL ? sizeof(*candidate->member_blends) : 0u) +
+        (candidate->member_rgb != NULL ? 3u * sizeof(*candidate->member_rgb) : 0u);
     if (status == QUANTAPDF_OK && sample_bytes != 0u) {
         if (candidate->member_count > (SIZE_MAX - bytes) / sample_bytes)
             status = QUANTAPDF_ERROR_UNSUPPORTED;

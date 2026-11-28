@@ -101,13 +101,18 @@ typedef struct quantapdf_composer_clip_state {
     size_t member_count;
     double *member_opacities; /* Absent when every mask group member is opaque. */
     double *member_luminosities; /* One projected DeviceGray value per luminosity fill. */
+    quantapdf_composer_blend_mode *member_blends; /* Absent when every mask group member is Normal. */
+    double *member_rgb; /* Absent unless RGB luminosity mask uses non-Normal blends (3 doubles/member). */
     double backdrop_luminosity;
+    double backdrop_rgb[3];
     quantapdf_composer_soft_mask_mode mask_mode;
     quantapdf_mask_transfer *transfer; /* Absent for /Identity. */
     size_t transfer_count;
     unsigned char *transfer_data;
     size_t transfer_data_bytes;
     int knockout;
+    int isolated;
+    int has_backdrop_rgb;
 } quantapdf_composer_clip_state;
 
 typedef enum quantapdf_composer_paint_kind_internal {
