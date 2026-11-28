@@ -14,6 +14,7 @@ struct source_outline_glyph { std::vector<quantapdf_composer_path_command> comma
 struct source_outline_paint {
     std::vector<source_outline_glyph> glyphs; uint32_t argb;
     bool merge_glyph_coverage;
+    uint32_t knockout_group=0u;
 };
 inline std::array<double,3> source_rgb_channels(uint32_t argb)
 {

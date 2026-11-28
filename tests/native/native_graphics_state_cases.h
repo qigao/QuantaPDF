@@ -206,10 +206,32 @@ static int alpha_group_cases(const std::string& filename)
         const unsigned glyph_samples=((255u-unmasked[i])*16u+127u)/255u;
         CHECK(actual[i]==((32u-glyph_samples)*255u+16u)/32u);
     }
-    for(const char *shows : {"<002d> Tj /Inert gs <002d> Tj","/Inert gs <002d> Tj /Half gs <002d> Tj"}) {
-        CHECK(render(create_alpha_group(
-            std::string("/Half gs BT /F 4 Tf 1 1 Td ")+shows+" ET",""),
-            144u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    {
+        // Varying paint states inside a knockout (/TK true) BT/ET text object:
+        // later shows knock out earlier shows against the BT-entry backdrop.
+        std::vector<unsigned char> ko_actual,ko_ref;
+        const auto half_then_opaque=create_alpha_group(
+            "/Half gs BT /F 4 Tf 1 1 Td <002d> Tj /Inert gs 1 0 0 1 1 1 Tm <002d> Tj ET","");
+        CHECK(render(half_then_opaque,144u,ko_actual)==EXIT_SUCCESS && ko_actual==unmasked);
+
+        const auto opaque_then_half=create_alpha_group(
+            "/Half gs BT /F 4 Tf 1 1 Td /Inert gs <002d> Tj /Half gs 1 0 0 1 1 1 Tm <002d> Tj ET","");
+        CHECK(render(opaque_then_half,144u,ko_actual)==EXIT_SUCCESS && ko_actual==actual);
+
+        // Opacity-zero glyph knocks out an earlier opaque glyph back to the white backdrop.
+        const auto opaque_then_zero=create_alpha_group(
+            "BT /F 4 Tf 1 1 Td /Inert gs <002d> Tj /Zero gs 1 0 0 1 1 1 Tm <002d> Tj ET","");
+        CHECK(render(opaque_then_zero,144u,ko_actual)==EXIT_SUCCESS &&
+              std::all_of(ko_actual.begin(),ko_actual.end(),[](unsigned char v){return v==255u;}));
+
+        // Disjoint sequential shows with varying /ca match /Separate (/TK false).
+        for(const char *shows : {"<002d> Tj /Inert gs <002d> Tj","/Inert gs <002d> Tj /Half gs <002d> Tj"}) {
+            CHECK(render(create_alpha_group(
+                std::string("/Half gs BT /F 4 Tf 1 1 Td ")+shows+" ET",""),144u,ko_actual)==EXIT_SUCCESS);
+            CHECK(render(create_alpha_group(
+                std::string("/Separate gs /Half gs BT /F 4 Tf 1 1 Td ")+shows+" ET",""),144u,ko_ref)==EXIT_SUCCESS);
+            CHECK(ko_actual==ko_ref);
+        }
     }
 
     const auto multiple_text=create_alpha_group(
@@ -803,10 +825,94 @@ static int alpha_group_cases(const std::string& filename)
         CHECK(render(create_alpha_group(malformed,""),72u,actual,
             QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
     }
+    {
+        // Varying blend, color, clip, and soft-mask states inside a knockout (/TK true) BT/ET object.
+        std::vector<unsigned char> ko_actual,ko_ref,ko_sep;
+        for(const char *seq : {"/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj /Reset gs <002d> Tj ET",
+            "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj 1 0 0 rg <002d> Tj ET"}) {
+            CHECK(render(create_alpha_group(seq,""),72u,ko_actual)==EXIT_SUCCESS);
+            CHECK(render(create_alpha_group(std::string("/Separate gs ")+seq,""),72u,ko_sep)==EXIT_SUCCESS);
+            CHECK(ko_actual==ko_sep);
+        }
+        for(unsigned dpi : {72u,144u}) {
+            // Overlapping Multiply -> Hue in /TK true knocks out Multiply against the .2 .6 .8 backdrop.
+            const auto blend_ko=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f /Multiply gs .8 .4 .2 rg "
+                "BT /F 4 Tf 1 1 Td <002d> Tj /Hue gs 1 0 0 rg 1 0 0 1 1 1 Tm <002d> Tj ET","");
+            const auto blend_solo=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f /Hue gs 1 0 0 rg BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+            const auto blend_sep=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f /Separate gs /Multiply gs .8 .4 .2 rg "
+                "BT /F 4 Tf 1 1 Td <002d> Tj /Hue gs 1 0 0 rg 1 0 0 1 1 1 Tm <002d> Tj ET","");
+            CHECK(render(blend_ko,dpi,ko_actual)==EXIT_SUCCESS &&
+                  render(blend_solo,dpi,ko_ref)==EXIT_SUCCESS &&
+                  render(blend_sep,dpi,ko_sep)==EXIT_SUCCESS);
+            CHECK(ko_actual==ko_ref && ko_actual!=ko_sep);
+
+            // Clipped + soft-masked Color blend knocks out earlier opaque blue glyph inside clip.
+            const auto masked_ko=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f 1.75 0 2.25 4 re W n "
+                "BT /F 4 Tf /Inert gs 0 0 1 rg 1 1 Td <002d> Tj "
+                "/Half gs /Alpha gs /Color gs 1 0 0 rg 1 0 0 1 1 1 Tm <002d> Tj ET",
+                "/Half gs 0 0 12 4 re f",text_mask_form);
+            const auto masked_solo=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f 1.75 0 2.25 4 re W n "
+                "/Half gs /Alpha gs /Color gs 1 0 0 rg BT /F 4 Tf 1 1 Td <002d> Tj ET",
+                "/Half gs 0 0 12 4 re f",text_mask_form);
+            const auto masked_sep=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f /Separate gs 1.75 0 2.25 4 re W n "
+                "BT /F 4 Tf /Inert gs 0 0 1 rg 1 1 Td <002d> Tj "
+                "/Half gs /Alpha gs /Color gs 1 0 0 rg 1 0 0 1 1 1 Tm <002d> Tj ET",
+                "/Half gs 0 0 12 4 re f",text_mask_form);
+            CHECK(render(masked_ko,dpi,ko_actual)==EXIT_SUCCESS &&
+                  render(masked_solo,dpi,ko_ref)==EXIT_SUCCESS &&
+                  render(masked_sep,dpi,ko_sep)==EXIT_SUCCESS);
+            CHECK(ko_actual==ko_ref && ko_actual!=ko_sep);
+
+            // Three interleaved states (A -> B -> C) preserve paint order: C knocks out B and A.
+            const auto triple_ko=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f BT /F 4 Tf "
+                "/Multiply gs 1 0 0 rg 1 1 Td <002d> Tj "
+                "/Half gs /Reset gs 0 1 0 rg 1 0 0 1 1 1 Tm <002d> Tj "
+                "/Inert gs /Multiply gs 0 0 1 rg 1 0 0 1 1 1 Tm <002d> Tj ET","");
+            const auto triple_solo=create_alpha_group(
+                ".2 .6 .8 rg 0 0 12 4 re f /Multiply gs 0 0 1 rg BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+            CHECK(render(triple_ko,dpi,ko_actual)==EXIT_SUCCESS &&
+                  render(triple_solo,dpi,ko_ref)==EXIT_SUCCESS && ko_actual==ko_ref);
+        }
+
+        // Partial overlap at 144 DPI: non-overlapping subpixels keep each glyph's own state while
+        // overlapping subpixels diverge cleanly from /Separate (/TK false).
+        std::vector<unsigned char> g1_mask,g2_mask,solo1,solo2;
+        const auto partial_ko=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /Half gs 1 0 0 rg "
+            "BT /F 4 Tf 1 1 Td <002d> Tj /Screen gs 0 1 0 rg 1 0 0 1 1.5 1 Tm <002d> Tj ET","");
+        const auto partial_sep=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /Separate gs /Half gs 1 0 0 rg "
+            "BT /F 4 Tf 1 1 Td <002d> Tj /Screen gs 0 1 0 rg 1 0 0 1 1.5 1 Tm <002d> Tj ET","");
+        const auto solo_first=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /Half gs 1 0 0 rg BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+        const auto solo_second=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /Half gs /Screen gs 0 1 0 rg BT /F 4 Tf 1.5 1 Td <002d> Tj ET","");
+        const auto mask_first=create_alpha_group("BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+        const auto mask_second=create_alpha_group("BT /F 4 Tf 1.5 1 Td <002d> Tj ET","");
+        CHECK(render(partial_ko,144u,ko_actual)==EXIT_SUCCESS &&
+              render(partial_sep,144u,ko_sep)==EXIT_SUCCESS &&
+              render(solo_first,144u,solo1)==EXIT_SUCCESS &&
+              render(solo_second,144u,solo2)==EXIT_SUCCESS &&
+              render(mask_first,144u,g1_mask)==EXIT_SUCCESS &&
+              render(mask_second,144u,g2_mask)==EXIT_SUCCESS);
+        CHECK(ko_actual!=ko_sep);
+        for(size_t px=0u;px<ko_actual.size();px+=3u) {
+            if(g2_mask[px]==255u) {
+                CHECK(ko_actual[px]==solo1[px] && ko_actual[px+1u]==solo1[px+1u] && ko_actual[px+2u]==solo1[px+2u]);
+            } else if(g1_mask[px]==255u || g2_mask[px]==0u) {
+                CHECK(ko_actual[px]==solo2[px] && ko_actual[px+1u]==solo2[px+1u] && ko_actual[px+2u]==solo2[px+2u]);
+            }
+        }
+    }
     for(const char *unsupported : {"/CustomOnly gs 0 0 12 4 re f","/UnsupportedArr gs /Plain Do",
-        "/CustomOnly gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
-        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj /Reset gs <002d> Tj ET",
-        "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj 1 0 0 rg <002d> Tj ET"}) {
+        "/CustomOnly gs BT /F 4 Tf 1 1 Td <002d> Tj ET"}) {
         CHECK(render(create_alpha_group(unsupported,""),72u,actual,
             QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }
