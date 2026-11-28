@@ -2,11 +2,12 @@
 #define QUANTAPDF_CONTEXT_INTERNAL_H
 
 #include "../backend/document_backend.h"
+#include "atomic_refcount.h"
 #include "context_lease_internal.h"
 
 /* ABI v2 requires external serialization, including retain and release. */
 struct quantapdf_context {
-    size_t references;
+    quantapdf_atomic_size references;
     const quantapdf_backend_ops *ops;
 #if defined(QUANTAPDF_TESTING)
     int test_fail_allocation;

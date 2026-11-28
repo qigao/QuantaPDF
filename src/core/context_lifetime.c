@@ -1,17 +1,13 @@
 #include "context_internal.h"
 
-#include <assert.h>
 #include <stdlib.h>
 
 quantapdf_status quantapdf_context_retain_internal(quantapdf_context *context)
 {
     if (context == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    assert(context->references != 0);
-    if (context->references == SIZE_MAX)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    ++context->references;
-    return QUANTAPDF_OK;
+    return quantapdf_refcount_retain(
+        &context->references, QUANTAPDF_ERROR_UNSUPPORTED);
 }
 
 void *quantapdf_context_allocate_internal(quantapdf_context *context, size_t size)

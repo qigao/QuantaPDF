@@ -24,7 +24,6 @@ extern "C" {
 #define QUANTAPDF_VERSION_MAJOR 2
 #define QUANTAPDF_VERSION_MINOR 34
 #define QUANTAPDF_VERSION_PATCH 0
-#define QUANTAPDF_ABI_VERSION 2
 
 typedef struct quantapdf_context quantapdf_context;
 typedef struct quantapdf_document quantapdf_document;

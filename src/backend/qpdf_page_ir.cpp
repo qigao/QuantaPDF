@@ -5,6 +5,7 @@
 #include "resource/composer_blend_names.h"
 #include "resource/mask_calculator.h"
 
+#include <qpdf/Pipeline.hh>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
 #include <qpdf/QPDFPageObjectHelper.hh>
@@ -939,6 +940,37 @@ quantapdf_status source_image_paint(void *user,Obj image,
       catch(std::length_error const&){return QUANTAPDF_ERROR_UNSUPPORTED;}
 }
 
+class bounded_content_counter final : public Pipeline {
+public:
+    bounded_content_counter(size_t& used,size_t ceiling)
+        : Pipeline("bounded PDF content stream",nullptr),total(used),limit(ceiling) {}
+
+    void write(const unsigned char *,size_t count) override
+    {
+        admit(total<=limit && count<=limit-total,QUANTAPDF_ERROR_UNSUPPORTED);
+        total+=count;
+    }
+
+    void finish() override { finished=true; }
+
+    bool finished=false;
+private:
+    size_t& total;
+    size_t limit;
+};
+
+void preflight_bounded_content_stream(Obj stream,size_t& used_bytes,size_t max_bytes)
+{
+    admit(stream.isStream(),QUANTAPDF_ERROR_FORMAT);
+    const Obj dict=stream.getDict();
+    admit(dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
+          dict.getKey("/FDecodeParms").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+    bounded_content_counter counter(used_bytes,max_bytes);
+    bool filtered=false;
+    admit(stream.pipeStreamData(&counter,&filtered,0,qpdf_dl_specialized,true,true) &&
+          filtered && counter.finished,QUANTAPDF_ERROR_FORMAT);
+}
+
 class page_content_reader final : public Obj::ParserCallbacks {
     /* One q frame owns every currently interpreted graphics-state value.
      * Path construction belongs to the content stream, outside q/Q. */
@@ -1723,6 +1755,8 @@ private:
         reader.close_path();
         reader.clip_active=child.define_clip(std::move(reader.pending_path),QUANTAPDF_COMPOSER_FILL_NONZERO,0u);
         reader.clear_path();
+        size_t form_preflight_bytes=content_bytes;
+        preflight_bounded_content_stream(form,form_preflight_bytes,target.limits.max_content_bytes);
         form.parseAsContents(&reader);
 
         admit(child.ordered_scene(),QUANTAPDF_ERROR_UNSUPPORTED);
@@ -2239,11 +2273,9 @@ void page_content_resources(QPDFPageObjectHelper& page,
 {
     const auto streams=page.getPageContents();
     admit(streams.size()<=limits.max_content_streams,QUANTAPDF_ERROR_UNSUPPORTED);
-    for(auto stream:streams) {
-        const Obj dict=stream.getDict();
-        admit(dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
-              dict.getKey("/FDecodeParms").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
-    }
+    size_t preflight_bytes=0u;
+    for(auto stream:streams)
+        preflight_bounded_content_stream(stream,preflight_bytes,limits.max_content_bytes);
 }
 
 /* A strictly parsed zero-paint page owns a valid Page IR with no

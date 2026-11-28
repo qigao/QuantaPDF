@@ -57,8 +57,8 @@ versioned entries, fixture selector and capability-policy matrix are removed;
 current Source code lives in `qpdf_page_ir.h/.cpp`. Page-work limits have no
 whole-file byte cap. Public rendering has no four-stream/64-KiB Contents admission cap.
 Explicit internal content budgets count selected streams before parsing and
-qpdf's actual decoded content bytes before interpretation; they do not bound
-qpdf's transient decode buffer allocation. Two Image paints may retain a frozen
+stream decoded bytes through a zero-copy bounded QPDF Pipeline before
+interpretation so decompression bombs abort prior to transient buffer growth. Two Image paints may retain a frozen
 Clip for the first and GS0 after an actual Q restore for the second; the same
 C11 ordered compositor consumes both. Tests include clear/encrypted files larger
 than 3 MiB and independent full-RGB restored-image references. Fixed paint,
