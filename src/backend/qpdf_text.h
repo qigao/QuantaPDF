@@ -40,7 +40,7 @@ struct source_mixed_callbacks {
         double,quantapdf_composer_blend_mode)=nullptr;
     quantapdf_status (*on_image)(void*,QPDFObjectHandle,
         const std::array<double,6>&,const std::array<double,3>&,
-        quantapdf_composer_clip_id,quantapdf_composer_clip_id,double,quantapdf_composer_blend_mode)=nullptr;
+        quantapdf_composer_clip_id,quantapdf_composer_clip_id,double,quantapdf_composer_blend_mode,bool)=nullptr;
     quantapdf_status (*on_gs)(void*,QPDFObjectHandle,const std::array<double,6>&,
         quantapdf_composer_clip_id*,double*,quantapdf_composer_blend_mode*,bool*)=nullptr;
     /* Ordinary page paths retain one owner across BT. Operands are passed
@@ -64,6 +64,7 @@ public:
     virtual quantapdf_status consume(QPDFObjectHandle)=0;
     virtual quantapdf_status finish()=0;
     virtual const std::vector<source_outline_paint>& paints() const=0;
+    virtual void drain_paints(std::vector<source_outline_paint>& out)=0;
 };
 quantapdf_status make_source_text_outlines(
     QPDFObjectHandle resources,double viewport_left,double viewport_bottom,
