@@ -932,7 +932,8 @@
   Composer 写出／重开与 C11 栅格化，并覆盖 Path、Image、Text 及 `/BM` 名称数组回退。
 - 启用 knockout（`/TK true` 及默认状态）时文字对象（`BT ... ET`）内变化的绘制状态（`/ca` 透明度、颜色、16 种 `/BM` 混合模式、硬裁剪与 `/SMask` 软遮罩）已贯通 Source IR、Prepared Page 内存记账与 C11 子像素 knockout 栅格化，并补充跨 DPI 逐像素与 `/TK false` 对照测试。
 - 软遮罩组（`/SMask /G`）内的全部 16 种 ISO 32000-1 混合模式及 `/BM` 数组选择已贯通 Source IR、验证、资源去重、Prepared Page 记账、Composer 写出／重开与 C11 栅格化：`/S /Alpha` 保持组 Alpha 语义；`/S /Luminosity` 区分 `/Group /I`（隔离／非隔离）与 `/K`（knockout），在 `/DeviceRGB` 下保留通道级 RGB 混合后再投影亮度并执行 `/TR`。
-- 普通 Form XObject（非透明组 `/Subtype /Form`）的 `Do` 调用已贯通 Source IR、Composer 写出／重开与 C11 栅格化：严格隔离 `q`/`Q` 与资源字典（支持局部 `/Resources` 覆盖与缺省继承并校验 `/DefaultRGB`／`/DefaultGray`），级联 `/Matrix` 与裁剪 `/BBox`（支持嵌套 Form 交集裁剪、仿射变换、内部路径／图像／`BT ... ET` 与 knockout 文字有序输出），并具备循环引用检测、深度上限（32）与解码字节预算校验；含 `/Group` 的透明组 Form 仍返回 `UNSUPPORTED`。
+- 普通 Form XObject（非透明组 `/Subtype /Form`）的 `Do` 调用已贯通 Source IR、Composer 写出／重开与 C11 栅格化：严格隔离 `q`/`Q` 与资源字典（支持局部 `/Resources` 覆盖与缺省继承并校验 `/DefaultRGB`／`/DefaultGray`），级联 `/Matrix` 与裁剪 `/BBox`（支持嵌套 Form 交集裁剪、仿射变换、内部路径／图像／`BT ... ET` 与 knockout 文字有序输出），并具备循环引用检测、深度上限（32）与解码字节预算校验。
+- 透明组 Form XObject（`/Subtype /Form` 含 `/Group << /S /Transparency /I ... /K ... /CS ... >>`，ISO 32000-1 §§11.4.4–11.4.6、§11.6.6）已贯通 C11 IR（`GROUP_BEGIN`/`GROUP_END`）、Prepared Page 平衡嵌套与每像素栈帧内存记账、Source IR 准入、Composer 透明组标志（`TRANSPARENCY_GROUP | ISOLATED | KNOCKOUT`）写出／重开与 C11 栅格化：支持隔离（`/I true`）与非隔离（`/I false`）初始背景移除、knockout（`/K true`）与非 knockout（`/K false`）、`/DeviceRGB` 与 `/DeviceGray`（含缺省继承）、嵌套透明组与普通 Form、内部路径／图像／`BT ... ET` 与 knockout 文字，以及外层 `/ca`、16 种 `/BM` 与 `/SMask` 对整组一次性合成；非 `/Transparency` 组、未支持 `/CS`（如 `/DeviceCMYK`/数组）及非法键仍按原子拒绝返回 `FORMAT`/`UNSUPPORTED`。
 - 描边内的非 Normal 混合待实现。
 
 ## 单一执行模型
@@ -972,7 +973,7 @@ Renderer 使用同一套几何、采样和合成实现。Form、透明组和 pat
 | A2 通用内容、路径与坐标 | 普通 opaque Scene 已动态保存操作及 Clip 图；Stroke/复杂 paint、一般页面坐标和部分底层消费者仍受固定 profile 限制 | 任意实际绘制序列、通用 q/Q/CTM/Clip；完整路径/Stroke；一般页面几何、DPI/ROI/RGBA；合理的动态/分块绘制 | P1，功能实现首先推进 |
 | A3 字体、文本与提取 | 已有 TrueType 子集/轮廓、CID FontFile2 与部分文字操作；Composer 部分能力不能当作 Source 通用支持 | 多字体、多段 Text、完整 text state/positioning；Encoding/CMap/ToUnicode；常见嵌入字体与标准字体；提取/搜索/选区几何 | P1 |
 | A4 图像与色彩 | 不透明 Gray/RGB/CMYK 支持多位深 RAW/Flate、顺序与渐进式 JPEG、Indexed 基色、仿射、插值、颜色键、显式位图遮罩、独立 DeviceGray／DeviceRGB stencil 绘制及灰度图像 SMask（含 DeviceGray／RGB／CMYK 与 Indexed Matte），具体范围见上文 | ICC 色彩管理、其他 Indexed 基色、扫描图像、其他色彩空间、inline image、独立 stencil 提取和 JPEG2000 内嵌 alpha | P1 |
-| A5 Form、透明度与外观 | Normal `/ca` 页面绘制、路径填充／图像／文字及软遮罩组的全部 16 种混合模式（含 `/BM` 数组与 `/TK` knockout）、Alpha 及 DeviceGray／RGB Luminosity 矢量遮罩组（含四类标量 `/TR`）、普通非透明组 Form XObject `Do`（含 `/Matrix`、`/BBox`、局部/继承 `/Resources` 与嵌套调用） | 透明组 Form（`/Group`）、描边透明度与混合、其他遮罩色彩空间、pattern/shading、annotation/widget appearance | P1 |
+| A5 Form、透明度与外观 | Normal `/ca` 页面绘制、路径填充／图像／文字及软遮罩组的全部 16 种混合模式（含 `/BM` 数组与 `/TK` knockout）、Alpha 及 DeviceGray／RGB Luminosity 矢量遮罩组（含四类标量 `/TR`）、普通与透明组 Form XObject `Do`（含 `/Group << /S /Transparency /I /K /CS >>` 隔离／非隔离、knockout、嵌套与外层 `/ca`/`/BM`/`/SMask` 一次性合成） | 描边透明度与混合、其他透明组/遮罩色彩空间（如 CMYK/ICC）、pattern/shading、annotation/widget appearance | P1 |
 | A6 文档操作、编辑与生成 | 打开、页面操作、编辑、导出、Composer、安全观察等已有实现，完整回归未纳入当前门禁 | 以当前 API 接通并验证 open/read/edit/export/merge/compose；修正文档树与 writer 语义；简化失败编辑；保证生成文件的实际行为 | P1 |
 | A7 Beta 测试、文档与交付 | 当前 native CI 全绿；旧验收文档过时，CI 没有 SDK 发布产物 | 当前功能矩阵、已有 SDK 回归迁移、真实文档集合、发布包/清单/许可/校验和、对应平台运行结果 | P0，与功能并行 |
 

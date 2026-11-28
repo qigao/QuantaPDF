@@ -466,7 +466,7 @@ static int form_xobject_cases(const std::string& filename)
             quantapdf_status expected;
         };
         const bad_form_case cases[] = {
-            {"/Fm Do", "0 0 2 2 re f", "<< /Subtype /Form /BBox [0 0 4 4] /Group << /S /Transparency >> >>", nullptr, QUANTAPDF_ERROR_UNSUPPORTED},
+            {"/Fm Do", "0 0 2 2 re f", "<< /Subtype /Form /BBox [0 0 4 4] /Group << /S /Other >> >>", nullptr, QUANTAPDF_ERROR_UNSUPPORTED},
             {"/Fm Do", "0 0 2 2 re f", "<< /Subtype /Form >>", nullptr, QUANTAPDF_ERROR_FORMAT},
             {"/Fm Do", "0 0 2 2 re f", "<< /Subtype /Form /BBox [0 0 4 4] /Matrix [1 0 0 1 0] >>", nullptr, QUANTAPDF_ERROR_FORMAT},
             {"/Fm Do", "0 0 2 2 re f", "<< /Subtype /Form /BBox [0 0 4 4] /FormType 2 >>", nullptr, QUANTAPDF_ERROR_UNSUPPORTED},

@@ -593,9 +593,15 @@ struct admission {
     size_t content_bytes=0;
     size_t mask_transfer_bytes_left=mask_transfer_data_bytes;
     bool has_mask_groups=false,has_paint_transparency=false;
+    struct staged_transparency_group {
+        bool isolated=false;
+        bool knockout=false;
+        bool gray_space=false;
+    };
     std::vector<staged_image> draws;
     std::vector<staged_path> painted_paths;
-    std::vector<int> order; /* 1=PATH, 2=IMAGE, as originally painted */
+    std::vector<staged_transparency_group> groups;
+    std::vector<int> order; /* 1=PATH, 2=IMAGE, 3=TEXT_OUTLINES, 4=GROUP_BEGIN, 5=GROUP_END */
     bool clip_completed=false;
     // A definition intersects its frozen path with its actual parent state.
     std::vector<staged_clip_definition> clips;
@@ -684,6 +690,18 @@ struct admission {
                 return clip;
         }
         return paint_clip(clip,mask);
+    }
+
+    void begin_transparency_group(bool isolated,bool knockout,bool gray_space)
+    {
+        admit(order.size()<limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
+        groups.push_back({isolated,knockout,gray_space});
+        order.push_back(4);
+    }
+    void end_transparency_group()
+    {
+        admit(order.size()<limits.max_operations,QUANTAPDF_ERROR_UNSUPPORTED);
+        order.push_back(5);
     }
 
     void paint_path(std::vector<quantapdf_composer_path_command> commands,
@@ -1689,10 +1707,10 @@ private:
 
     page_content_reader(admission& owner,size_t& bytes,size_t depth,const matrix& ctm,
         uint32_t argb,clip_identity clip,clip_identity mask,double opacity,
-        quantapdf_composer_blend_mode mode,bool knockout) :
+        quantapdf_composer_blend_mode mode,bool knockout,bool gray_group) :
         target(owner),content_bytes(bytes),in_form(true),form_depth(depth),
-        clip_active(clip),mask_active(mask),current(ctm),fill_argb(argb),
-        fill_alpha(opacity),blend(mode),text_knockout(knockout),
+        group_gray(gray_group),clip_active(clip),mask_active(mask),current(ctm),
+        fill_argb(argb),fill_alpha(opacity),blend(mode),text_knockout(knockout),
         texample_prefix_possible(false) {}
 
     void drain_outline_paints()
@@ -1747,10 +1765,47 @@ private:
             admit(form_type.isInteger(),QUANTAPDF_ERROR_FORMAT);
             admit(form_type.getIntValue()==1,QUANTAPDF_ERROR_UNSUPPORTED);
         }
-        admit(dict.getKey("/Group").isNull() && dict.getKey("/OC").isNull() &&
+        admit(dict.getKey("/OC").isNull() &&
               dict.getKey("/Ref").isNull() && dict.getKey("/OPI").isNull() &&
               dict.getKey("/F").isNull() && dict.getKey("/FFilter").isNull() &&
               dict.getKey("/FDecodeParms").isNull(),QUANTAPDF_ERROR_UNSUPPORTED);
+        Obj group=dict.getKey("/Group");
+        bool is_transparency_group=false;
+        bool group_isolated=false,group_knockout=false,child_group_gray=group_gray;
+        if(!group.isNull()) {
+            admit(group.isDictionary(),QUANTAPDF_ERROR_FORMAT);
+            for(const auto& key:group.getKeys())
+                admit(key=="/Type" || key=="/S" || key=="/I" || key=="/K" || key=="/CS",
+                      QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj gtype=group.getKey("/Type");
+            if(!gtype.isNull()) {
+                admit(gtype.isName(),QUANTAPDF_ERROR_FORMAT);
+                admit(gtype.getName()=="/Group",QUANTAPDF_ERROR_UNSUPPORTED);
+            }
+            Obj gsubtype=group.getKey("/S");
+            admit(gsubtype.isName(),QUANTAPDF_ERROR_FORMAT);
+            admit(gsubtype.getName()=="/Transparency",QUANTAPDF_ERROR_UNSUPPORTED);
+            Obj giso=group.getKey("/I");
+            if(!giso.isNull()) {
+                admit(giso.isBool(),QUANTAPDF_ERROR_FORMAT);
+                group_isolated=giso.getBoolValue();
+            }
+            Obj gko=group.getKey("/K");
+            if(!gko.isNull()) {
+                admit(gko.isBool(),QUANTAPDF_ERROR_FORMAT);
+                group_knockout=gko.getBoolValue();
+            }
+            Obj gcs=group.getKey("/CS");
+            if(!gcs.isNull()) {
+                admit(gcs.isName() || gcs.isArray(),QUANTAPDF_ERROR_FORMAT);
+                admit(gcs.isName(),QUANTAPDF_ERROR_UNSUPPORTED);
+                if(gcs.getName()=="/DeviceRGB")child_group_gray=false;
+                else if(gcs.getName()=="/DeviceGray")child_group_gray=true;
+                else throw rejected{QUANTAPDF_ERROR_UNSUPPORTED};
+            }
+            is_transparency_group=true;
+            target.has_paint_transparency=true;
+        }
         Obj bbox=dict.getKey("/BBox");
         admit(bbox.isArray() && bbox.getArrayNItems()==4,QUANTAPDF_ERROR_FORMAT);
         const double x0=finite_number(bbox.getArrayItem(0)),y0=finite_number(bbox.getArrayItem(1)),
@@ -1798,7 +1853,11 @@ private:
         preflight_bounded_content_stream(form,form_preflight_bytes,target.limits.max_content_bytes);
 
         page_content_reader child(target,content_bytes,form_depth+1u,concat(ctm,placement),
-            argb,clip,mask,opacity,mode,knockout);
+            argb,clip,
+            is_transparency_group?0u:mask,
+            is_transparency_group?1.0:opacity,
+            is_transparency_group?QUANTAPDF_COMPOSER_BLEND_NORMAL:mode,
+            knockout,child_group_gray);
         child.begin_contour();
         child.append_point(QUANTAPDF_COMPOSER_PATH_MOVE_TO,x0,y0);
         child.append_point(QUANTAPDF_COMPOSER_PATH_LINE_TO,x1,y0);
@@ -1808,7 +1867,17 @@ private:
         child.clip_active=target.define_clip(std::move(child.pending_path),
             QUANTAPDF_COMPOSER_FILL_NONZERO,clip);
         child.clear_path();
+        if(is_transparency_group) {
+            target.begin_transparency_group(group_isolated,group_knockout,child_group_gray);
+            QP_SOURCE_STAGE_ARM(7u);
+            target.scoped_paints.push_back({target.paint_clip(0u,mask),opacity,mode});
+        }
         form.parseAsContents(&child);
+        if(is_transparency_group) {
+            target.end_transparency_group();
+            QP_SOURCE_STAGE_ARM(7u);
+            target.scoped_paints.push_back({});
+        }
     }
 
     void apply_gs(Obj name,const matrix& ctm,clip_identity& active,double& opacity,
@@ -2230,6 +2299,7 @@ private:
     bool in_mask_group=false;
     bool in_form=false;
     size_t form_depth=0u;
+    bool group_gray=false;
     clip_identity clip_active=0u,mask_active=0u;
     bool clip_pending=false;
     quantapdf_composer_fill_rule clip_rule=QUANTAPDF_COMPOSER_FILL_NONZERO;
@@ -2539,7 +2609,7 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
             admit(ir.resources.images!=nullptr,QUANTAPDF_ERROR_NOMEM);
             ir.resources.image_count=ir.resources.image_capacity=images;
         }
-        size_t path_index=0u,image_index=0u,text_index=0u;
+        size_t path_index=0u,image_index=0u,text_index=0u,group_index=0u;
         for(size_t i=0u;i<n;++i) {
             auto& op=ir.operations[i];op.page_index=0u;
             if(source.order[i]==2) {
@@ -2572,6 +2642,18 @@ quantapdf_ir materialize_ordered_paints(const admission& source)
             }
             if(source.order[i]==3) {
                 copy_outline_paint(op,source.text_outline_paints[text_index++]);continue;
+            }
+            if(source.order[i]==4) {
+                const auto& grp=source.groups[group_index++];
+                op.kind=QUANTAPDF_COMPOSER_OPERATION_GROUP_BEGIN;
+                op.value.group.isolated=grp.isolated?1:0;
+                op.value.group.knockout=grp.knockout?1:0;
+                op.value.group.gray_space=grp.gray_space?1:0;
+                continue;
+            }
+            if(source.order[i]==5) {
+                op.kind=QUANTAPDF_COMPOSER_OPERATION_GROUP_END;
+                continue;
             }
             const staged_path& staged=source.painted_paths[path_index++];
             op.kind=QUANTAPDF_COMPOSER_OPERATION_PATH;

@@ -17,6 +17,7 @@
 typedef struct quantapdf_native_prepared_usage_v1 {
     size_t operations,expanded_paints,glyphs,commands,image_pixels,retained_bytes;
     size_t states_used,clips_used,clip_leaves,knockout_groups;
+    size_t max_group_depth,max_nonisolated_depth;
 } quantapdf_native_prepared_usage_v1;
 
 typedef struct quantapdf_native_prepared_page_v1 {
@@ -189,6 +190,8 @@ static inline int qp_prepared_resource_closure(
            gs->soft_mask_id!=0u || gs->clip_id>r->clip_count)
             return 0;
     }
+    size_t group_depth=0u,nonisolated_depth=0u;
+    int group_iso_stack[32];
     for(size_t i=0u;i<ir->operation_count;++i) {
         const quantapdf_composer_operation *op=&ir->operations[i];
         const size_t state=(size_t)op->graphics_state_id;
@@ -220,8 +223,25 @@ static inline int qp_prepared_resource_closure(
             for(size_t g=0u;g<t->glyph_count;++g)
                 if(!qp_prepared_commands(t->glyphs[g].commands,t->glyphs[g].command_count,u))
                     return 0;
+        } else if(op->kind==QUANTAPDF_COMPOSER_OPERATION_GROUP_BEGIN) {
+            const quantapdf_transparency_group_operation *grp=&op->value.group;
+            if((grp->isolated!=0 && grp->isolated!=1) ||
+               (grp->knockout!=0 && grp->knockout!=1) ||
+               (grp->gray_space!=0 && grp->gray_space!=1) ||
+               group_depth>=32u)
+                return 0;
+            group_iso_stack[group_depth++]=grp->isolated;
+            if(!grp->isolated)++nonisolated_depth;
+            if(group_depth>u->max_group_depth)u->max_group_depth=group_depth;
+            if(nonisolated_depth>u->max_nonisolated_depth)u->max_nonisolated_depth=nonisolated_depth;
+            ++u->expanded_paints;
+        } else if(op->kind==QUANTAPDF_COMPOSER_OPERATION_GROUP_END) {
+            if(op->graphics_state_id!=0u || group_depth==0u)return 0;
+            if(!group_iso_stack[--group_depth])--nonisolated_depth;
+            ++u->expanded_paints;
         } else return 0;
     }
+    if(group_depth!=0u)return 0;
     /* Topological numbering makes allocation-free closure possible: every
      * node must feed a later node or an observed state. A finite forward
      * chain therefore ends at an observed root, including shared subgraphs. */
@@ -321,9 +341,11 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if(p.route==QP_NATIVE_PREPARED_SCENE) {
             /* One result surface and scratch for original glyph masks (plus
-             * knockout group backdrop/claim/accum buffers when present). */
+             * knockout text and transparency group frame buffers when present). */
             const size_t pixel_bytes=4u+(p.usage.glyphs!=0u?sizeof(uint16_t):0u)+
-                (p.usage.knockout_groups!=0u?4u+sizeof(uint16_t)+4u*sizeof(double):0u);
+                (p.usage.knockout_groups!=0u?4u+sizeof(uint16_t)+4u*sizeof(double):0u)+
+                p.usage.max_group_depth*(6u*sizeof(double))+
+                p.usage.max_nonisolated_depth*(4u*sizeof(double));
             size_t clips=0u;
             if(!quantapdf_native_scene_clip_storage_bound_v1(&source->resources,p.usage.clip_leaves,&clips) ||
                !qp_prepared_charge(&bytes,clips,SIZE_MAX) ||
