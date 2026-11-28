@@ -916,8 +916,88 @@ static int alpha_group_cases(const std::string& filename)
         CHECK(render(create_alpha_group(unsupported,""),72u,actual,
             QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
     }
-    CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",
-        "/Multiply gs 0 0 2 2 re f"),72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    // A5D: Non-Normal blend modes inside /S /Alpha and /S /Luminosity soft-mask groups.
+    {
+        std::vector<unsigned char> ref_alpha, blended_alpha;
+        const auto alpha_ref=create_alpha_group("/Alpha gs 0 0 12 4 re f",
+            "/Half gs 0 0 2 2 re f /Quarter gs 1 0 2 2 re f");
+        const auto alpha_blend=create_alpha_group("/Alpha gs 0 0 12 4 re f",
+            "/Multiply gs /Half gs 0 0 2 2 re f /Hue gs /Quarter gs 1 0 2 2 re f");
+        for(unsigned dpi:{72u,144u}) {
+            CHECK(render(alpha_ref,dpi,ref_alpha)==EXIT_SUCCESS &&
+                  render(alpha_blend,dpi,blended_alpha)==EXIT_SUCCESS &&
+                  blended_alpha==ref_alpha);
+        }
+        // Unsupported / invalid /BM inside mask group still fails closed.
+        CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",
+            "/CustomOnly gs 0 0 2 2 re f"),72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+        CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",
+            "/BadBMNum gs 0 0 2 2 re f"),72u,actual,QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+
+        // /DeviceGray luminosity mask: distinguish /I false vs /I true and /K false vs /K true.
+        const struct {
+            bool isolated,knockout;
+            unsigned char inside_expected;
+        } gray_blend_cases[]={
+            {false,false,172u}, /* non-isolated non-knockout: (0.5+0.5*0.3)*0.5 = 0.325 -> 172 */
+            {true,false,140u},  /* isolated non-knockout: 0.5*0.5+0.5*(0.8*0.5) = 0.45 -> 140 */
+            {false,true,191u},  /* non-isolated knockout: Multiply(0.5, 0.5) = 0.25 -> 191 */
+            {true,true,128u},   /* isolated knockout: topmost 0.5 over transparent -> 0.5 -> 128 */
+        };
+        for(const auto& tc:gray_blend_cases) {
+            const auto doc=create_alpha_group("/Alpha gs 0 0 12 4 re f",
+                ".8 g /Half gs 0 0 4 2.5 re f /Inert gs .5 g /Multiply gs 0 0 4 2.5 re f",
+                luminosity_form("/DeviceGray",tc.knockout,tc.isolated).c_str(),
+                "<< /S /Luminosity /BC [.5] /TR /Identity >>");
+            for(unsigned dpi:{72u,144u}) {
+                std::vector<unsigned char> px;
+                CHECK(render(doc,dpi,px)==EXIT_SUCCESS);
+                const size_t w=12u*dpi/72u,scale=dpi/72u;
+                const size_t in_idx=((2u*scale)*w+(1u*scale))*3u;
+                const size_t out_idx=((2u*scale)*w+(6u*scale))*3u;
+                CHECK(px[in_idx]==tc.inside_expected &&
+                      px[in_idx+1u]==tc.inside_expected &&
+                      px[in_idx+2u]==tc.inside_expected);
+                CHECK(px[out_idx]==128u && px[out_idx+1u]==128u && px[out_idx+2u]==128u);
+            }
+        }
+
+        // /DeviceRGB luminosity mask: true RGB channel blending + non-separable modes + /TR.
+        const struct {
+            const char *mask_ops;
+            const char *mask_dict;
+            unsigned char inside_expected;
+        } rgb_blend_cases[]={
+            /* Multiply((.2,.4,.9),(.8,.2,.5))=(.16,.08,.45) -> Y=0.1447 -> round(255*(1-0.1447))=218 */
+            {".8 .2 .5 rg /Multiply gs 0 0 4 2.5 re f",
+             "<< /S /Luminosity /BC [.2 .4 .9] /TR /Identity >>",218u},
+            /* Color preserves Y(BC)=0.395 -> round(255*0.605)=154 */
+            {".9 .1 .2 rg /Color gs 0 0 4 2.5 re f",
+             "<< /S /Luminosity /BC [.2 .4 .9] /TR /Identity >>",154u},
+            /* Luminosity adopts Y(src)=0.351 -> round(255*0.649)=165 */
+            {".9 .1 .2 rg /Luminosity gs 0 0 4 2.5 re f",
+             "<< /S /Luminosity /BC [.2 .4 .9] /TR /Identity >>",165u},
+            /* /BM [/CustomBlend /Hue] array selects /Hue, preserving Y(BC)=0.395 -> 154 */
+            {".9 .1 .2 rg /FallbackHue gs 0 0 4 2.5 re f",
+             "<< /S /Luminosity /BC [.2 .4 .9] /TR /Identity >>",154u},
+            /* Multiply with inverting /TR: 1-0.1447=0.8553 -> round(255*0.1447)=37 */
+            {".8 .2 .5 rg /Multiply gs 0 0 4 2.5 re f",
+             "<< /S /Luminosity /BC [.2 .4 .9] /TR << /FunctionType 2 /Domain [0 1] /C0 [1] /C1 [0] /N 1 >> >>",37u},
+        };
+        for(const auto& tc:rgb_blend_cases) {
+            const auto doc=create_alpha_group("/Alpha gs 0 0 12 4 re f",tc.mask_ops,
+                luminosity_form("/DeviceRGB",false,false).c_str(),tc.mask_dict);
+            for(unsigned dpi:{72u,144u}) {
+                std::vector<unsigned char> px;
+                CHECK(render(doc,dpi,px)==EXIT_SUCCESS);
+                const size_t w=12u*dpi/72u,scale=dpi/72u;
+                const size_t in_idx=((2u*scale)*w+(1u*scale))*3u;
+                CHECK(px[in_idx]==tc.inside_expected &&
+                      px[in_idx+1u]==tc.inside_expected &&
+                      px[in_idx+2u]==tc.inside_expected);
+            }
+        }
+    }
     for(const char *unsupported : {"/Alpha gs", "/Bad gs 0 0 1 1 re f", "0 0 1 1 re S"}) {
         CHECK(render(create_alpha_group("/Alpha gs 0 0 12 4 re f",unsupported),
             72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);

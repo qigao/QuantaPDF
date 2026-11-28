@@ -91,10 +91,10 @@ inline constexpr const char *alpha_knockout_form =
     "<< /Type /XObject /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 0.5 0]"
     " /Group << /S /Transparency /I true /K true >> >>";
 
-inline std::string luminosity_form(const char *space,bool knockout=false)
+inline std::string luminosity_form(const char *space,bool knockout=false,bool isolated=false)
 {
     return std::string("<< /Subtype /Form /BBox [0 0 4 2.5] /Matrix [1 0 0 1 .5 0] "
-        "/Group << /S /Transparency /CS ")+space+(knockout?" /K true":"")+" >> >>";
+        "/Group << /S /Transparency /CS ")+space+(isolated?" /I true":"")+(knockout?" /K true":"")+" >> >>";
 }
 
 inline constexpr const char* stitched_luminosity_mask =
