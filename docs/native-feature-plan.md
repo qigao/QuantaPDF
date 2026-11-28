@@ -931,7 +931,8 @@
   含 `Lum`/`Sat`/`ClipColor`/`SetLum`/`SetSat`）已贯通 C11 API、Source IR、Graph ExtGState、
   Composer 写出／重开与 C11 栅格化，并覆盖 Path、Image、Text 及 `/BM` 名称数组回退。
 - 启用 knockout（`/TK true` 及默认状态）时文字对象（`BT ... ET`）内变化的绘制状态（`/ca` 透明度、颜色、16 种 `/BM` 混合模式、硬裁剪与 `/SMask` 软遮罩）已贯通 Source IR、Prepared Page 内存记账与 C11 子像素 knockout 栅格化，并补充跨 DPI 逐像素与 `/TK false` 对照测试。
-- 描边和遮罩组内的非 Normal 混合待实现。
+- 软遮罩组（`/SMask /G`）内的全部 16 种 ISO 32000-1 混合模式及 `/BM` 数组选择已贯通 Source IR、验证、资源去重、Prepared Page 记账、Composer 写出／重开与 C11 栅格化：`/S /Alpha` 保持组 Alpha 语义；`/S /Luminosity` 区分 `/Group /I`（隔离／非隔离）与 `/K`（knockout），在 `/DeviceRGB` 下保留通道级 RGB 混合后再投影亮度并执行 `/TR`。
+- 描边内的非 Normal 混合待实现。
 
 ## 单一执行模型
 
