@@ -457,6 +457,34 @@ static int alpha_group_cases(const std::string& filename)
     }
     CHECK(render(create_alpha_group("/Bad gs 0 0 12 4 re f",""),
         72u,actual,QUANTAPDF_ERROR_UNSUPPORTED)==EXIT_SUCCESS);
+    const auto expected_separable_blend=[](size_t mode_index,double d,double s) -> double {
+        const double product=d*s/255.0;
+        switch(mode_index) {
+        case 0u: return product;
+        case 1u: return d+s-product;
+        case 2u: return d<127.5 ? 2.0*product : 255.0-2.0*(255.0-d)*(255.0-s)/255.0;
+        case 3u: return std::min(d,s);
+        case 4u: return std::max(d,s);
+        case 5u:
+            if(d==0.0)return 0.0;
+            if(s>=255.0)return 255.0;
+            return std::min(255.0,d*255.0/(255.0-s));
+        case 6u:
+            if(d==255.0)return 255.0;
+            if(s<=0.0)return 0.0;
+            return 255.0-std::min(255.0,(255.0-d)*255.0/s);
+        case 7u: return s<=127.5 ? 2.0*product : 255.0-2.0*(255.0-d)*(255.0-s)/255.0;
+        case 8u: {
+            const double b=d/255.0,src=s/255.0;
+            if(src<=0.5)return (b-(1.0-2.0*src)*b*(1.0-b))*255.0;
+            const double curve=b<=0.25 ? ((16.0*b-12.0)*b+4.0)*b : std::sqrt(b);
+            return (b+(2.0*src-1.0)*(curve-b))*255.0;
+        }
+        case 9u: return std::abs(d-s);
+        case 10u: return d+s-2.0*product;
+        default: return s;
+        }
+    };
     const struct {
         const char *name;
         std::array<double,3> blended;
@@ -467,6 +495,12 @@ static int alpha_group_cases(const std::string& filename)
         {"/Overlay",{81.6,132.6,173.4},{147,160,171}},
         {"/Darken",{51,102,51},{140,153,140}},
         {"/Lighten",{204,153,204},{178,165,178}},
+        {"/ColorDodge",{255,255,255},{191,191,191}},
+        {"/ColorBurn",{0,0,0},{127,127,127}},
+        {"/HardLight",{173.4,122.4,81.6},{171,158,147}},
+        {"/SoftLight",{88.944,140.76,179.52},{149,162,172}},
+        {"/Difference",{153,51,153},{165,140,165}},
+        {"/Exclusion",{173.4,132.6,173.4},{171,160,171}},
     };
     for(const auto& mode:blends) {
         const std::string gs=std::string(mode.name)+" gs ";
@@ -541,12 +575,10 @@ static int alpha_group_cases(const std::string& filename)
                         source=std::round(wide_left*(1.0-t)+right[c]*257.0*t)/257.0;
                     }
                     if(column>=8u && column<10u)source=right[c];
-                    const double d=backdrop[c],product=d*source/255.0;
-                    const double mixed[]={product,d+source-product,
-                        d<127.5?2.0*d*source/255.0:255.0-2.0*(255.0-d)*(255.0-source)/255.0,
-                        std::min(d,source),std::max(d,source)};
+                    const double d=backdrop[c];
+                    const double mixed=expected_separable_blend(mode,d,source);
                     const auto expected=static_cast<unsigned>(column==11u || (column==10u && y>=2u*scale)?
-                        source+0.5:d+(mixed[mode]-d)*opacity+0.5);
+                        source+0.5:d+(mixed-d)*opacity+0.5);
                     CHECK(actual[(y*w+x)*3u+c]==expected);
                 }
             }
@@ -604,11 +636,9 @@ static int alpha_group_cases(const std::string& filename)
                 const unsigned restored_samples=((255u-unmasked[i])*16u+127u)/255u;
                 unsigned tone=base[c];
                 for(unsigned glyph=0u;glyph<2u;++glyph) {
-                    const double d=tone,s=color[c],product=d*s/255.0;
-                    const double mixed[]={product,d+s-product,
-                        d<127.5?2.0*d*s/255.0:255.0-2.0*(255.0-d)*(255.0-s)/255.0,
-                        std::min(d,s),std::max(d,s),s};
-                    tone=static_cast<unsigned>(d+(mixed[mode]-d)*samples/64.0+0.5);
+                    const double d=tone,s=color[c];
+                    const double mixed=expected_separable_blend(mode,d,s);
+                    tone=static_cast<unsigned>(d+(mixed-d)*samples/64.0+0.5);
                 }
                 // Screen with blue has no red or green contribution, and sends blue to 255.
                 if(c==2u)tone=(tone*(32u-samples)+255u*samples+16u)/32u;
@@ -636,8 +666,57 @@ static int alpha_group_cases(const std::string& filename)
             QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
     }
 
-    for(const char *unsupported : {"/ColorBurn gs 0 0 12 4 re f","/ColorBurn gs /Plain Do",
-        "/ColorBurn gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
+    // Verify non-saturated ColorDodge/ColorBurn, SoftLight <=0.25/>0.25, and /BM array fallback
+    {
+        const auto dodge_direct=create_alpha_group(
+            ".2 .2 .2 rg 0 0 12 4 re f /ColorDodge gs .4 .6 .8 rg 0 0 12 4 re f","");
+        const auto dodge_array=create_alpha_group(
+            ".2 .2 .2 rg 0 0 12 4 re f /FallbackDodge gs .4 .6 .8 rg 0 0 12 4 re f","");
+        CHECK(render(dodge_direct,72u,actual)==EXIT_SUCCESS);
+        CHECK(render(dodge_array,72u,reference)==EXIT_SUCCESS && actual==reference);
+        for(size_t px=0u;px<actual.size();px+=3u) {
+            CHECK(actual[px]==85u && actual[px+1u]==128u && actual[px+2u]==255u);
+        }
+        const auto burn_direct=create_alpha_group(
+            ".6 .8 .2 rg 0 0 12 4 re f /ColorBurn gs .8 .6 .2 rg 0 0 12 4 re f","");
+        const auto burn_array=create_alpha_group(
+            ".6 .8 .2 rg 0 0 12 4 re f /FallbackBurn gs .8 .6 .2 rg 0 0 12 4 re f","");
+        CHECK(render(burn_direct,72u,actual)==EXIT_SUCCESS);
+        CHECK(render(burn_array,72u,reference)==EXIT_SUCCESS && actual==reference);
+        for(size_t px=0u;px<actual.size();px+=3u) {
+            CHECK(actual[px]==128u && actual[px+1u]==170u && actual[px+2u]==0u);
+        }
+        const auto soft_branches=create_alpha_group(
+            ".2 .8 .2 rg 0 0 12 4 re f /SoftLight gs .4 .8 .8 rg 0 0 12 4 re f","");
+        CHECK(render(soft_branches,72u,actual)==EXIT_SUCCESS);
+        const std::array<double,3> soft_d{51.0,204.0,51.0},soft_s{102.0,204.0,204.0};
+        for(size_t c=0u;c<3u;++c) {
+            const auto expected=static_cast<unsigned>(
+                expected_separable_blend(8u,soft_d[c],soft_s[c])+0.5);
+            CHECK(actual[c]==expected);
+        }
+        const auto img_array=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /FallbackDodge gs 4 0 0 4 0 0 cm /Interpolated Do","",
+            alpha_form,"<< /S /Alpha /TR /Identity >>",false,{},255u,true);
+        const auto img_direct=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /ColorDodge gs 4 0 0 4 0 0 cm /Interpolated Do","",
+            alpha_form,"<< /S /Alpha /TR /Identity >>",false,{},255u,true);
+        CHECK(render(img_array,72u,actual)==EXIT_SUCCESS &&
+              render(img_direct,72u,reference)==EXIT_SUCCESS && actual==reference);
+        const auto text_array=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /FallbackBurn gs .8 .4 .2 rg BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+        const auto text_direct=create_alpha_group(
+            ".2 .6 .8 rg 0 0 12 4 re f /ColorBurn gs .8 .4 .2 rg BT /F 4 Tf 1 1 Td <002d> Tj ET","");
+        CHECK(render(text_array,72u,actual)==EXIT_SUCCESS &&
+              render(text_direct,72u,reference)==EXIT_SUCCESS && actual==reference);
+    }
+    for(const char *malformed : {"/BadArrEmpty gs 0 0 12 4 re f","/BadArrType gs 0 0 12 4 re f",
+        "/BadBMNum gs 0 0 12 4 re f"}) {
+        CHECK(render(create_alpha_group(malformed,""),72u,actual,
+            QUANTAPDF_ERROR_FORMAT)==EXIT_SUCCESS);
+    }
+    for(const char *unsupported : {"/HueOnly gs 0 0 12 4 re f","/UnsupportedArr gs /Plain Do",
+        "/HueOnly gs BT /F 4 Tf 1 1 Td <002d> Tj ET",
         "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj /Reset gs <002d> Tj ET",
         "/Multiply gs BT /F 4 Tf 1 1 Td <002d> Tj 1 0 0 rg <002d> Tj ET"}) {
         CHECK(render(create_alpha_group(unsupported,""),72u,actual,
