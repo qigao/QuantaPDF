@@ -4661,23 +4661,6 @@ struct quantapdf_qpdf_provider_status {
     }
 };
 
-struct quantapdf_qpdf_provider_counts {
-    size_t registrations = 0;
-    size_t invocations = 0;
-};
-
-using quantapdf_qpdf_provider_count_map =
-    std::map<QPDFObjGen, quantapdf_qpdf_provider_counts>;
-
-enum quantapdf_qpdf_image_recompression_fault {
-    quantapdf_qpdf_image_fault_none = 0,
-    quantapdf_qpdf_image_fault_before_provider_nomem = 1,
-    quantapdf_qpdf_image_fault_provider_nomem = 2,
-    quantapdf_qpdf_image_fault_provider_backend = 3,
-    quantapdf_qpdf_image_fault_before_publication = 4,
-    quantapdf_qpdf_image_fault_work_budget = 5
-};
-
 struct quantapdf_qpdf_resource_item {
     QPDFObjectHandle owner = QPDFObjectHandle::newNull();
     QPDFObjectHandle resources = QPDFObjectHandle::newNull();
@@ -4776,7 +4759,6 @@ static quantapdf_status quantapdf_qpdf_queue_page_appearances(
 static quantapdf_status quantapdf_qpdf_discover_images(
     QPDF& pdf,
     size_t source_size,
-    bool force_budget_exhaustion,
     std::vector<QPDFObjectHandle> *images)
 {
     quantapdf_qpdf_work_budget budget;
@@ -4784,8 +4766,6 @@ static quantapdf_status quantapdf_qpdf_discover_images(
         quantapdf_qpdf_init_work_budget(source_size, &budget);
     if (status != QUANTAPDF_OK)
         return status;
-    if (force_budget_exhaustion)
-        budget.limit = 1;
 
     std::vector<quantapdf_qpdf_resource_item> work;
     std::set<QPDFObjGen> owner_seen;
@@ -5018,35 +4998,17 @@ static quantapdf_status quantapdf_qpdf_classify_image(
 
 static void quantapdf_qpdf_register_image_provider(
     quantapdf_qpdf_image_plan plan,
-    std::shared_ptr<quantapdf_qpdf_provider_status> const& provider_status,
-    std::shared_ptr<quantapdf_qpdf_provider_count_map> const& provider_counts,
-    std::shared_ptr<int> const& test_fault)
+    std::shared_ptr<quantapdf_qpdf_provider_status> const& provider_status)
 {
-    QPDFObjGen const identity = plan.image.getObjGen();
-    ++(*provider_counts)[identity].registrations;
     QPDFObjectHandle source = plan.image.copyStream();
     quantapdf::detail::jpeg_image_spec const spec = plan.spec;
     plan.image.replaceStreamData(
         std::function<bool(Pipeline*, bool, bool)>(
-            [source, spec, identity, provider_status, provider_counts,
-             test_fault](
+            [source, spec, provider_status](
                 Pipeline *pipeline,
                 bool suppress_warnings,
                 bool) mutable -> bool {
                 try {
-                    ++(*provider_counts)[identity].invocations;
-                    if (*test_fault ==
-                        quantapdf_qpdf_image_fault_provider_nomem) {
-                        *test_fault = quantapdf_qpdf_image_fault_none;
-                        provider_status->latch(QUANTAPDF_ERROR_NOMEM);
-                        return false;
-                    }
-                    if (*test_fault ==
-                        quantapdf_qpdf_image_fault_provider_backend) {
-                        *test_fault = quantapdf_qpdf_image_fault_none;
-                        provider_status->latch(QUANTAPDF_ERROR_BACKEND);
-                        return false;
-                    }
                     std::unique_ptr<quantapdf::detail::jpeg_encoder> encoder;
                     quantapdf_status const status =
                         quantapdf::detail::jpeg_encoder::create(
@@ -5086,8 +5048,6 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
     quantapdf_qpdf_document *document,
     int jpeg_quality,
     size_t max_decoded_bytes_per_image,
-    int test_fault,
-    quantapdf_qpdf_image_recompression_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
@@ -5095,26 +5055,17 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_data = nullptr;
     *out_size = 0;
-    if (test_stats != nullptr)
-        *test_stats = {};
     if (document == nullptr || document->pdf == nullptr ||
         jpeg_quality < 1 || jpeg_quality > 100 ||
-        max_decoded_bytes_per_image == 0 ||
-        test_fault < quantapdf_qpdf_image_fault_none ||
-        test_fault > quantapdf_qpdf_image_fault_work_budget)
+        max_decoded_bytes_per_image == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
     if (document->source_data == nullptr || document->source_size == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
     std::shared_ptr<quantapdf_qpdf_provider_status> provider_status;
-    std::shared_ptr<quantapdf_qpdf_provider_count_map> provider_counts;
-    std::shared_ptr<int> pending_test_fault;
     try {
         provider_status =
             std::make_shared<quantapdf_qpdf_provider_status>();
-        provider_counts =
-            std::make_shared<quantapdf_qpdf_provider_count_map>();
-        pending_test_fault = std::make_shared<int>(test_fault);
         auto pdf = QPDF::create();
         pdf->setSuppressWarnings(true);
         pdf->setAttemptRecovery(false);
@@ -5145,7 +5096,6 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
         status = quantapdf_qpdf_discover_images(
             *pdf,
             document->source_size,
-            test_fault == quantapdf_qpdf_image_fault_work_budget,
             &images);
         if (status != QUANTAPDF_OK)
             return status;
@@ -5160,9 +5110,7 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
                 image,
                 jpeg_quality,
                 max_decoded_bytes_per_image,
-                test_stats == nullptr
-                    ? nullptr
-                    : &test_stats->decoded_preflight_bytes,
+                nullptr,
                 &eligible,
                 &plan.spec);
             if (status != QUANTAPDF_OK)
@@ -5175,17 +5123,8 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
         if (pdf->anyWarnings())
             return QUANTAPDF_ERROR_FORMAT;
 
-        if (test_fault ==
-            quantapdf_qpdf_image_fault_before_provider_nomem)
-            return QUANTAPDF_ERROR_NOMEM;
-
-        for (quantapdf_qpdf_image_plan const& plan : plans) {
-            quantapdf_qpdf_register_image_provider(
-                plan,
-                provider_status,
-                provider_counts,
-                pending_test_fault);
-        }
+        for (quantapdf_qpdf_image_plan const& plan : plans)
+            quantapdf_qpdf_register_image_provider(plan, provider_status);
 
         status = quantapdf_qpdf_write_memory(*pdf, out_data, out_size);
         if (status != QUANTAPDF_OK) {
@@ -5199,30 +5138,11 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
             *out_size = 0;
             return provider_status->status;
         }
-        if (test_fault ==
-            quantapdf_qpdf_image_fault_before_publication) {
-            std::free(*out_data);
-            *out_data = nullptr;
-            *out_size = 0;
-            return QUANTAPDF_ERROR_BACKEND;
-        }
         if (pdf->anyWarnings()) {
             std::free(*out_data);
             *out_data = nullptr;
             *out_size = 0;
             return QUANTAPDF_ERROR_FORMAT;
-        }
-        if (test_stats != nullptr) {
-            test_stats->unique_images = provider_counts->size();
-            test_stats->every_provider_once = 1;
-            for (auto const& entry : *provider_counts) {
-                test_stats->provider_registrations +=
-                    entry.second.registrations;
-                test_stats->provider_invocations += entry.second.invocations;
-                if (entry.second.registrations != 1 ||
-                    entry.second.invocations != 1)
-                    test_stats->every_provider_once = 0;
-            }
         }
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
@@ -7824,32 +7744,11 @@ enum class quantapdf_qpdf_security_operation {
     reencrypt
 };
 
-struct quantapdf_qpdf_random_context {
-    int test_fault;
-    int phase;
-    quantapdf_qpdf_security_test_stats *test_stats;
-};
-
-thread_local quantapdf_qpdf_random_context *
-    quantapdf_qpdf_current_random_context = nullptr;
-
 class quantapdf_qpdf_random_provider final : public RandomDataProvider
 {
   public:
     void provideRandomData(unsigned char *data, size_t size) override
     {
-        quantapdf_qpdf_random_context *const context =
-            quantapdf_qpdf_current_random_context;
-        if (context != nullptr && context->test_stats != nullptr) {
-            if (context->phase == 1)
-                ++context->test_stats->configure_requests;
-            else
-                ++context->test_stats->write_requests;
-        }
-        if (context != nullptr &&
-            ((context->test_fault == 1 && context->phase == 1) ||
-             (context->test_fault == 2 && context->phase == 2)))
-            throw std::runtime_error("QuantaPDF test entropy failure");
         quantapdf_status const status = quantapdf_secure_random(data, size);
         if (status != QUANTAPDF_OK)
             throw std::runtime_error("QuantaPDF secure random failed");
@@ -7875,44 +7774,6 @@ class quantapdf_qpdf_random_provider_initializer final
 
 quantapdf_qpdf_random_provider_initializer
     quantapdf_qpdf_random_provider_process_initializer;
-
-class quantapdf_qpdf_random_context_guard final
-{
-  public:
-    quantapdf_qpdf_random_context_guard(
-        int test_fault,
-        quantapdf_qpdf_security_test_stats *test_stats) :
-        context{test_fault, 1, test_stats},
-        previous(quantapdf_qpdf_current_random_context),
-        test_stats(test_stats)
-    {
-        quantapdf_qpdf_current_random_context = &context;
-        if (test_stats != nullptr)
-            ++test_stats->context_entries;
-    }
-
-    ~quantapdf_qpdf_random_context_guard()
-    {
-        quantapdf_qpdf_current_random_context = previous;
-        if (test_stats != nullptr)
-            ++test_stats->context_exits;
-    }
-
-    quantapdf_qpdf_random_context_guard(
-        quantapdf_qpdf_random_context_guard const&) = delete;
-    quantapdf_qpdf_random_context_guard& operator=(
-        quantapdf_qpdf_random_context_guard const&) = delete;
-
-    void enter_write_phase() noexcept
-    {
-        context.phase = 2;
-    }
-
-  private:
-    quantapdf_qpdf_random_context context;
-    quantapdf_qpdf_random_context *previous;
-    quantapdf_qpdf_security_test_stats *test_stats;
-};
 
 quantapdf_status quantapdf_qpdf_security_signature_preflight(
     QPDF& pdf,
@@ -8026,8 +7887,6 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
     quantapdf_qpdf_document *document,
     quantapdf_qpdf_security_operation operation,
     quantapdf_encryption_options const *options,
-    int test_fault,
-    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
@@ -8065,7 +7924,7 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
              encrypted) ||
             (operation != quantapdf_qpdf_security_operation::encrypt &&
              !encrypted))
-            return QUANTAPDF_ERROR_STATE;
+            return QUANTAPDF_ERROR_UNSUPPORTED;
 
         status = quantapdf_qpdf_security_validate_id(
             pdf->getTrailer(),
@@ -8087,8 +7946,6 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
             if (QUtil::getRandomDataProvider() !=
                 quantapdf_qpdf_process_random_provider())
                 return QUANTAPDF_ERROR_UNSUPPORTED;
-            quantapdf_qpdf_random_context_guard random_context_guard(
-                test_fault, test_stats);
             QPDFObjectHandle trailer = pdf->getTrailer();
             bool const had_info = trailer.hasKey("/Info");
             QPDFObjectHandle original_info = trailer.getKey("/Info");
@@ -8105,6 +7962,7 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
             else if ((options->permissions &
                       QUANTAPDF_PERMISSION_PRINT_LOW_RESOLUTION) != 0u)
                 print = qpdf_r3p_low;
+
             writer.setR6EncryptionParameters(
                 options->user_password_utf8,
                 options->owner_password_utf8,
@@ -8124,7 +7982,6 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
                 trailer.replaceKey("/Info", original_info);
             else
                 trailer.removeKey("/Info");
-            random_context_guard.enter_write_phase();
             writer.write();
         }
 
@@ -8155,14 +8012,12 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
 extern "C" quantapdf_status quantapdf_qpdf_encrypt_pdf(
     quantapdf_qpdf_document *document,
     quantapdf_encryption_options const *options,
-    int test_fault,
-    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::encrypt,
-        options, test_fault, test_stats, out_data, out_size);
+        options, out_data, out_size);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_decrypt_pdf(
@@ -8172,20 +8027,18 @@ extern "C" quantapdf_status quantapdf_qpdf_decrypt_pdf(
 {
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::decrypt,
-        nullptr, 0, nullptr, out_data, out_size);
+        nullptr, out_data, out_size);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_reencrypt_pdf(
     quantapdf_qpdf_document *document,
     quantapdf_encryption_options const *options,
-    int test_fault,
-    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::reencrypt,
-        options, test_fault, test_stats, out_data, out_size);
+        options, out_data, out_size);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_capture_graph(

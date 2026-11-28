@@ -19,12 +19,6 @@ quantapdf_status quantapdf_poster_split_pages(
         splits == NULL || split_count == 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-#if defined(QUANTAPDF_TESTING)
-    if (document->test_poster_fault != QUANTAPDF_TEST_POSTER_FAULT_NONE) {
-        document->test_poster_fault = QUANTAPDF_TEST_POSTER_FAULT_NONE;
-        return QUANTAPDF_ERROR_FORMAT;
-    }
-#endif
 
     status = quantapdf_output_create_internal(document->context, &output);
     if (status != QUANTAPDF_OK)

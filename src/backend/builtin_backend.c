@@ -287,15 +287,14 @@ static quantapdf_status builtin_qpdf_recompress_images(
     void *document,
     int jpeg_quality,
     size_t max_decoded_bytes_per_image,
-    int test_fault,
-    quantapdf_backend_image_recompression_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     quantapdf_builtin_document *state = document;
+
     return quantapdf_qpdf_recompress_images(
         state->writer, jpeg_quality, max_decoded_bytes_per_image,
-        test_fault, test_stats, out_data, out_size);
+        out_data, out_size);
 }
 
 static quantapdf_status builtin_qpdf_document_audit(
@@ -319,14 +318,12 @@ static quantapdf_status builtin_qpdf_sanitize(
 static quantapdf_status builtin_qpdf_encrypt_pdf(
     void *document,
     const quantapdf_encryption_options *options,
-    int test_fault,
-    quantapdf_backend_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     quantapdf_builtin_document *state = document;
     return quantapdf_qpdf_encrypt_pdf(
-        state->writer, options, test_fault, test_stats, out_data, out_size);
+        state->writer, options, out_data, out_size);
 }
 
 static quantapdf_status builtin_qpdf_decrypt_pdf(
@@ -341,14 +338,12 @@ static quantapdf_status builtin_qpdf_decrypt_pdf(
 static quantapdf_status builtin_qpdf_reencrypt_pdf(
     void *document,
     const quantapdf_encryption_options *options,
-    int test_fault,
-    quantapdf_backend_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     quantapdf_builtin_document *state = document;
     return quantapdf_qpdf_reencrypt_pdf(
-        state->writer, options, test_fault, test_stats, out_data, out_size);
+        state->writer, options, out_data, out_size);
 }
 
 static quantapdf_status builtin_qpdf_flatten_interactive(

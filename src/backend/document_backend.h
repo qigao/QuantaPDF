@@ -29,21 +29,6 @@ typedef struct quantapdf_backend_bitmap {
     int components;
 } quantapdf_backend_bitmap;
 
-typedef struct quantapdf_backend_image_recompression_test_stats {
-    size_t unique_images;
-    size_t provider_registrations;
-    size_t provider_invocations;
-    size_t decoded_preflight_bytes;
-    int every_provider_once;
-} quantapdf_backend_image_recompression_test_stats;
-
-typedef struct quantapdf_backend_security_test_stats {
-    size_t context_entries;
-    size_t configure_requests;
-    size_t write_requests;
-    size_t context_exits;
-} quantapdf_backend_security_test_stats;
-
 /* An edit owns its independent state and retains this immutable table.
  * Neither state nor table may borrow the source document after begin succeeds. */
 typedef struct quantapdf_backend_edit_ops {
@@ -203,8 +188,6 @@ typedef struct quantapdf_backend_ops {
         void *document,
         int jpeg_quality,
         size_t max_decoded_bytes_per_image,
-        int test_fault,
-        quantapdf_backend_image_recompression_test_stats *test_stats,
         unsigned char **out_data,
         size_t *out_size);
     quantapdf_status (*document_audit)(
@@ -218,8 +201,6 @@ typedef struct quantapdf_backend_ops {
     quantapdf_status (*encrypt_pdf)(
         void *document,
         const quantapdf_encryption_options *options,
-        int test_fault,
-        quantapdf_backend_security_test_stats *test_stats,
         unsigned char **out_data,
         size_t *out_size);
     quantapdf_status (*decrypt_pdf)(
@@ -229,8 +210,6 @@ typedef struct quantapdf_backend_ops {
     quantapdf_status (*reencrypt_pdf)(
         void *document,
         const quantapdf_encryption_options *options,
-        int test_fault,
-        quantapdf_backend_security_test_stats *test_stats,
         unsigned char **out_data,
         size_t *out_size);
     quantapdf_status (*flatten_interactive)(
