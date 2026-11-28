@@ -16,7 +16,7 @@
  * and every reachable input must remain immutable for that borrow. */
 typedef struct quantapdf_native_prepared_usage_v1 {
     size_t operations,expanded_paints,glyphs,commands,image_pixels,retained_bytes;
-    size_t states_used,clips_used,clip_leaves;
+    size_t states_used,clips_used,clip_leaves,knockout_groups;
 } quantapdf_native_prepared_usage_v1;
 
 typedef struct quantapdf_native_prepared_page_v1 {
@@ -206,10 +206,12 @@ static inline int qp_prepared_resource_closure(
         } else if(op->kind==QUANTAPDF_COMPOSER_OPERATION_TEXT_OUTLINES) {
             const quantapdf_text_outline_operation *t=&op->value.text_outlines;
             if((t->argb>>24u)!=255u ||
+               (t->knockout_group!=0u && !t->merge_glyph_coverage) ||
                ((t->glyph_count==0u)!=(t->glyphs==NULL)) ||
                !qp_prepared_charge(&u->glyphs,t->glyph_count,SIZE_MAX) ||
                !qp_prepared_bytes(&u->retained_bytes,t->glyph_count,sizeof(*t->glyphs)))
                 return 0;
+            if(t->knockout_group!=0u && t->glyph_count!=0u)++u->knockout_groups;
             *text=1;u->expanded_paints+=t->glyph_count;
             for(size_t g=0u;g<t->glyph_count;++g)
                 if(!qp_prepared_commands(t->glyphs[g].commands,t->glyphs[g].command_count,u))
@@ -314,8 +316,10 @@ static inline quantapdf_status quantapdf_native_prepare_page_v1(
            !qp_prepared_charge(&bytes,geometry,SIZE_MAX))
             return QUANTAPDF_ERROR_UNSUPPORTED;
         if(p.route==QP_NATIVE_PREPARED_SCENE) {
-            /* One result surface and scratch only for original glyph masks. */
-            const size_t pixel_bytes=4u+(p.usage.glyphs!=0u?sizeof(uint16_t):0u);
+            /* One result surface and scratch for original glyph masks (plus
+             * knockout group backdrop/claim/accum buffers when present). */
+            const size_t pixel_bytes=4u+(p.usage.glyphs!=0u?sizeof(uint16_t):0u)+
+                (p.usage.knockout_groups!=0u?4u+sizeof(uint16_t)+4u*sizeof(double):0u);
             size_t clips=0u;
             if(!quantapdf_native_scene_clip_storage_bound_v1(&source->resources,p.usage.clip_leaves,&clips) ||
                !qp_prepared_charge(&bytes,clips,SIZE_MAX) ||

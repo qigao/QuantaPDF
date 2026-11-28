@@ -397,6 +397,7 @@ struct projection {
     double outline_left=0.0,outline_bottom=0.0,outline_height=0.0;
     bool outline_swap_axes=false;
     size_t glyph_commands=0u;
+    uint32_t next_knockout_group=0u;
     std::vector<quantapdf::detail::source_outline_paint> outline_paints;
     quantapdf::detail::source_mixed_callbacks source_mixed={};
     // Direct dictionaries have no ObjGen identity. Cache the handle identity
@@ -627,19 +628,18 @@ public:
     void begin_outline_show()
     {
         const outline_paint_state state{p.outline_color(g),g.clip_id,g.mask_clip_id,g.opacity,g.blend};
+        const bool non_opaque_normal=
+            g.opacity!=1.0 || g.blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL || g.mask_clip_id!=0u;
+        if(object_knockout && non_opaque_normal)bt_knockout_needed=true;
         // Text knockout applies across all shows in a BT/ET object.
-        // Same-state glyphs share their coverage. Changes need a knockout group.
-        if(knockout_paint) {
-            supported(*knockout_paint==state);
+        // Consecutive same-state shows merge their coverage mask; varying
+        // states preserve paint order and share one knockout_group at ET.
+        if(object_knockout && bt_knockout_needed && last_outline_state &&
+           *last_outline_state==state) {
             return;
         }
-        const bool merge_glyph_coverage=object_knockout &&
-            (g.opacity!=1.0 || g.blend!=QUANTAPDF_COMPOSER_BLEND_NORMAL);
-        if(merge_glyph_coverage) {
-            supported(!saw_show);
-            knockout_paint=state;
-        }
-        saw_show=true;
+        const bool merge_glyph_coverage=object_knockout && non_opaque_normal;
+        last_outline_state=state;
         p.begin_outline_paint(state,merge_glyph_coverage);
     }
     void show(Obj v,bool begin_paint=true) { inside(); need(v.isString());
@@ -711,9 +711,21 @@ public:
                 need(status==QUANTAPDF_OK,status);
             }
             in_text=true;object_knockout=g.text_knockout;
-            saw_show=false;knockout_paint.reset();text=line=identity;
+            bt_knockout_needed=false;bt_paint_start=p.outline_paints.size();
+            last_outline_state.reset();text=line=identity;
         }
-        else if(op=="ET") { count(0); inside(); in_text=false; }
+        else if(op=="ET") {
+            count(0); inside(); in_text=false;
+            if(p.outline_mode && object_knockout && bt_knockout_needed &&
+               p.outline_paints.size()-bt_paint_start>1u) {
+                supported(p.next_knockout_group<std::numeric_limits<uint32_t>::max());
+                const uint32_t group=++p.next_knockout_group;
+                for(size_t k=bt_paint_start;k<p.outline_paints.size();++k) {
+                    p.outline_paints[k].merge_glyph_coverage=true;
+                    p.outline_paints[k].knockout_group=group;
+                }
+            }
+        }
         else if(op=="Tf") { count(2); g.face=p.get_font(resource("/Font",args[0])); g.size=number(args[1]); }
         else if(op=="Tc" || op=="Tw" || op=="Tz" || op=="TL" || op=="Ts") {
             count(1); double n=number(args[0]);
@@ -774,8 +786,9 @@ public:
     void handleEOF() override { need(args.empty() && stack.empty() && !in_text && marked==0u && !pending_clip); }
 private:
     projection& p; Obj resources; graphics g; size_t depth,marked=0; bool in_text=false;
-    bool saw_show=false,object_knockout=true;
-    std::optional<outline_paint_state> knockout_paint;
+    bool object_knockout=true,bt_knockout_needed=false;
+    size_t bt_paint_start=0u;
+    std::optional<outline_paint_state> last_outline_state;
     // Text/line matrices are not part of the saved graphics-state stack.
     matrix text=identity,line=identity;
     std::vector<graphics> stack; std::vector<Obj> args;
