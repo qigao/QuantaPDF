@@ -251,7 +251,7 @@ quantapdf_status quantapdf_pdf_graphics_evaluate_resolved(
             }
             if ((delta->presence & QUANTAPDF_PDF_GS_BLEND_MODE) != 0) {
                 if (delta->blend_mode < QUANTAPDF_COMPOSER_BLEND_NORMAL ||
-                    delta->blend_mode > QUANTAPDF_COMPOSER_BLEND_LIGHTEN) {
+                    delta->blend_mode > QUANTAPDF_COMPOSER_BLEND_EXCLUSION) {
                     status = QUANTAPDF_ERROR_UNSUPPORTED; goto fail;
                 }
                 current.blend_mode = delta->blend_mode;
