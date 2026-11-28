@@ -922,8 +922,13 @@
 - Composer 图形状态支持继承、启用和禁用 text knockout。写出时继承省略 `/TK`，
   启用和禁用分别写为 `true` 和 `false`，图形状态在 `BT` 前应用。
   72／96／144 DPI 回归重开 PDF，比较同一 glyph run 中半透明重叠字形的像素。
+- 其余 6 种 ISO 32000-1 可分离混合模式（`/ColorDodge`、`/ColorBurn`、`/HardLight`、`/SoftLight`、
+  `/Difference`、`/Exclusion`）以及 ExtGState 名称数组形式的 `/BM` 选择（按顺序选取首个可识别模式，
+  空数组或非名称元素返回 `QUANTAPDF_ERROR_FORMAT`，全为未支持模式返回 `QUANTAPDF_ERROR_UNSUPPORTED`）
+  已贯通 C11 API、Source IR、Graph ExtGState、Composer 写出／重开与 C11 栅格化，并覆盖 Path、Image
+  （含插值、色键、Alpha 遮罩）与 Text。
 - 描边和遮罩组内的非 Normal 混合、启用 knockout 时文字对象内变化的混合绘制状态，
-  以及其余模式和 `/BM` 数组待实现。
+  以及不可分离混合模式（`/Hue`、`/Saturation`、`/Color`、`/Luminosity`）待实现。
 
 ## 单一执行模型
 
